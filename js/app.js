@@ -2446,8 +2446,8 @@
                 return this.txVerifier.result.outputs.some(function (candidate) {
                     if (!candidate || !candidate.target || !candidate.target.data) return false;
                     if (!output || !output.output || !output.output.target || !output.output.target.data) return false;
-                    var candidateKey = candidate.target.data.targetKey || candidate.target.data.key;
-                    var outputKey = output.output.target.data.targetKey || output.output.target.data.key;
+                    var candidateKey = candidate.target.data.target_key || candidate.target.data.targetKey || candidate.target.data.key;
+                    var outputKey = output.output.target.data.target_key || output.output.target.data.targetKey || output.output.target.data.key;
                     return candidateKey === outputKey;
                 });
             },
@@ -2463,7 +2463,25 @@
             },
             outputStealthKey: function (target) {
                 if (!target || !target.data) return "";
-                return target.data.targetKey || target.data.key || "";
+                return target.data.target_key || target.data.targetKey || target.data.key || "";
+            },
+            outputCommitment: function (target) {
+                if (!target || !target.data) return "";
+                return target.data.commitment || "";
+            },
+            outputMaskedAmount: function (target) {
+                if (!target || !target.data) return "";
+                return target.data.masked_amount || target.data.maskedAmount || "";
+            },
+            ctRingAmountIsHidden: function (ringAmount) {
+                // Daemon uses UINT64_MAX as the "hidden" sentinel; JsonOutputStreamSerializer
+                // rounds-trips uint64 through int64, so it lands here as -1.
+                if (ringAmount === undefined || ringAmount === null) return true;
+                var numeric = Number(ringAmount);
+                return !Number.isFinite(numeric) || numeric < 0 || numeric === 0;
+            },
+            ctRingAmountText: function (ringAmount) {
+                return this.ctRingAmountIsHidden(ringAmount) ? "hidden" : this.formatCoins(ringAmount, 12);
             },
             ctTabHasContent: function (kind) {
                 if (kind === "mlsag") return this.transactionCtSignatures.length > 0;

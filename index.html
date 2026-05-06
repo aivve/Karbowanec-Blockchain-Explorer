@@ -699,9 +699,8 @@
                             <div class="tab-strip">
                                 <button type="button" class="tab-button" :class="{ active: activeTxTab === 'inputs' }" @click="activeTxTab = 'inputs'">Inputs</button>
                                 <button type="button" class="tab-button" :class="{ active: activeTxTab === 'outputs' }" @click="activeTxTab = 'outputs'">Outputs</button>
-                                <button type="button" class="tab-button" :class="{ active: activeTxTab === 'signatures' }" @click="activeTxTab = 'signatures'">Signatures</button>
-                                <button v-if="transactionIsCT" type="button" class="tab-button" :class="{ active: activeTxTab === 'ct-mlsag' }" @click="activeTxTab = 'ct-mlsag'">MLSAG <span class="count-pill">{{ transactionCtSignatures.length }}</span></button>
-                                <button v-if="transactionIsCT" type="button" class="tab-button" :class="{ active: activeTxTab === 'ct-proofs' }" @click="activeTxTab = 'ct-proofs'">GK proofs <span class="count-pill">{{ transactionCtProofs.length }}</span></button>
+                                <button type="button" class="tab-button" :class="{ active: activeTxTab === 'signatures' }" @click="activeTxTab = 'signatures'">Input signatures</button>
+                                <button v-if="transactionIsCT" type="button" class="tab-button" :class="{ active: activeTxTab === 'ct-proofs' }" @click="activeTxTab = 'ct-proofs'">Output proofs</button>
                                 <button v-if="transactionIsCT" type="button" class="tab-button" :class="{ active: activeTxTab === 'ct-kernel' }" @click="activeTxTab = 'ct-kernel'">Kernel</button>
                             </div>
 
@@ -720,7 +719,7 @@
                                         <tbody>
                                             <tr v-for="(input, index) in txView.tx.inputs" :key="input.type + '-' + index">
                                                 <template v-if="input.type === '04'">
-                                                    <td>{{ Number(input.data.ringAmount) > 0 ? formatCoins(input.data.ringAmount, 12) : 'hidden' }}</td>
+                                                    <td>{{ ctRingAmountText(input.data.ringAmount) }}</td>
                                                     <td><span class="hash-string">{{ input.data.keyImage }}</span></td>
                                                     <td v-if="transactionIsCT"><span class="hash-string">{{ input.data.pseudoCommitment }}</span></td>
                                                     <td>
@@ -731,7 +730,7 @@
                                                         </template>
                                                         <span v-else class="muted">ring of {{ input.data.mixin || 0 }} (references unavailable)</span>
                                                     </td>
-                                                    <td>04 <span class="muted">(CT)</span></td>
+                                                    <td>04 <i class="fas fa-eye-slash" aria-hidden="true" title="Confidential"></i></td>
                                                 </template>
                                                 <template v-else-if="input.type !== 'ff'">
                                                     <td>{{ formatCoins(input.data.input.amount, 12) }}</td>
@@ -773,15 +772,18 @@
                                                 <td>{{ output.output.target.type === '04' ? 'hidden' : formatCoins(output.output.amount, 12) }}</td>
                                                 <td><span class="hash-string">{{ outputStealthKey(output.output.target) }}</span></td>
                                                 <td v-if="transactionIsCT">
-                                                    <span v-if="output.output.target.type === '04'" class="hash-string">{{ output.output.target.data.commitment }}</span>
+                                                    <span v-if="output.output.target.type === '04'" class="hash-string">{{ outputCommitment(output.output.target) }}</span>
                                                     <span v-else class="muted">--</span>
                                                 </td>
                                                 <td v-if="transactionIsCT">
-                                                    <span v-if="output.output.target.type === '04'" class="hash-string">{{ output.output.target.data.maskedAmount }}</span>
+                                                    <span v-if="output.output.target.type === '04'" class="hash-string">{{ outputMaskedAmount(output.output.target) }}</span>
                                                     <span v-else class="muted">--</span>
                                                 </td>
                                                 <td>{{ formatNumber(output.globalIndex) }}</td>
-                                                <td>{{ output.output.target.type }}<span v-if="output.output.target.type === '04'" class="muted"> (CT)</span></td>
+                                                <td>
+                                                    {{ output.output.target.type }}
+                                                    <i v-if="output.output.target.type === '04'" class="fas fa-eye-slash" aria-hidden="true" title="Confidential"></i>
+                                                </td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -789,57 +791,58 @@
                             </article>
 
                             <article v-if="activeTxTab === 'signatures'" class="panel">
-                                <div class="table-shell">
-                                    <table class="data-table">
-                                        <thead>
-                                            <tr>
-                                                <th>#</th>
-                                                <th>Signature</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr v-for="signature in txView.tx.signatures" :key="signature.first + '-' + signature.second">
-                                                <td>{{ signature.first }}</td>
-                                                <td><span class="hash-string">{{ signature.second }}</span></td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </article>
-
-                            <article v-if="transactionIsCT && activeTxTab === 'ct-mlsag'" class="panel">
-                                <p class="muted" style="margin: 0 0 0.75rem;">
-                                    Per-input <strong>MLSAG</strong> ring signatures. Each carries an initial challenge <code>c0</code>
-                                    and a flat <code>ss</code> array laid out as alternating spend / commitment scalars per ring member.
-                                </p>
-                                <div v-if="!transactionCtSignatures.length" class="muted">No MLSAG signatures exposed.</div>
-                                <div v-for="(sig, sigIndex) in transactionCtSignatures" :key="'mlsag-' + sigIndex" class="panel" style="margin-top: 0.75rem;">
-                                    <div class="panel-header">
-                                        <div>
-                                            <p class="eyebrow">Input {{ sigIndex }}</p>
-                                            <h3>{{ ctSignatureRingSize(sig) }} ring members</h3>
+                                <template v-if="transactionIsCT">
+                                    <p class="muted" style="margin: 0 0 0.75rem;">
+                                        Per-input <strong>MLSAG</strong> ring signatures. Each carries an initial challenge <code>c0</code>
+                                        and a flat <code>ss</code> array laid out as alternating spend / commitment scalars per ring member.
+                                    </p>
+                                    <div v-if="!transactionCtSignatures.length" class="muted">No input signatures exposed.</div>
+                                    <div v-for="(sig, sigIndex) in transactionCtSignatures" :key="'mlsag-' + sigIndex" class="panel" style="margin-top: 0.75rem;">
+                                        <div class="panel-header">
+                                            <div>
+                                                <p class="eyebrow">Input {{ sigIndex }}</p>
+                                                <h3>{{ ctSignatureRingSize(sig) }} ring members</h3>
+                                            </div>
+                                        </div>
+                                        <div class="detail-row"><span>c0</span><strong class="hash-string">{{ sig.c0 }}</strong></div>
+                                        <div class="table-shell">
+                                            <table class="data-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>#</th>
+                                                        <th>spend (ss[2k])</th>
+                                                        <th>commitment (ss[2k+1])</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="ringIndex in ctSignatureRingSize(sig)" :key="'ring-' + sigIndex + '-' + ringIndex">
+                                                        <td>{{ ringIndex - 1 }}</td>
+                                                        <td><span class="hash-string">{{ ctSignatureRingPair(sig, ringIndex - 1).spend }}</span></td>
+                                                        <td><span class="hash-string">{{ ctSignatureRingPair(sig, ringIndex - 1).commitment }}</span></td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
-                                    <div class="detail-row"><span>c0</span><strong class="hash-string">{{ sig.c0 }}</strong></div>
+                                </template>
+                                <template v-else>
                                     <div class="table-shell">
                                         <table class="data-table">
                                             <thead>
                                                 <tr>
                                                     <th>#</th>
-                                                    <th>spend (ss[2k])</th>
-                                                    <th>commitment (ss[2k+1])</th>
+                                                    <th>Signature</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <tr v-for="ringIndex in ctSignatureRingSize(sig)" :key="'ring-' + sigIndex + '-' + ringIndex">
-                                                    <td>{{ ringIndex - 1 }}</td>
-                                                    <td><span class="hash-string">{{ ctSignatureRingPair(sig, ringIndex - 1).spend }}</span></td>
-                                                    <td><span class="hash-string">{{ ctSignatureRingPair(sig, ringIndex - 1).commitment }}</span></td>
+                                                <tr v-for="signature in txView.tx.signatures" :key="signature.first + '-' + signature.second">
+                                                    <td>{{ signature.first }}</td>
+                                                    <td><span class="hash-string">{{ signature.second }}</span></td>
                                                 </tr>
                                             </tbody>
                                         </table>
                                     </div>
-                                </div>
+                                </template>
                             </article>
 
                             <article v-if="transactionIsCT && activeTxTab === 'ct-proofs'" class="panel">
