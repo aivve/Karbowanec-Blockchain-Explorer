@@ -265,7 +265,7 @@
                                                         <span class="muted">{{ formatRelativeTime(tx.timestamp) }}</span>
                                                     </div>
                                                 </td>
-                                                <td>{{ formatCoins(tx.totalOutputsAmount, false) }}</td>
+                                                <td><span :title="isConfidentialTx(tx) ? 'Confidential transaction' : ''">{{ txOutputsAmountText(tx) }}</span></td>
                                                 <td>{{ formatCoins(tx.fee, false) }}</td>
                                                 <td><span class="nowrap-value">{{ formatBytes(tx.size) }}</span></td>
                                                 <td>
@@ -511,7 +511,7 @@
                                                     <a class="hash-string inline-link" :href="linkTo({ name: 'transaction', params: { hash: transaction.hash } })" @click.prevent="goTo({ name: 'transaction', params: { hash: transaction.hash } })">{{ transaction.hash }}</a>
                                                 </td>
                                                 <td>{{ formatCoins(transaction.fee, false) }}</td>
-                                                <td>{{ formatCoins(transaction.totalOutputsAmount, false) }}</td>
+                                                <td><span :title="isConfidentialTx(transaction) ? 'Confidential transaction' : ''">{{ txOutputsAmountText(transaction) }}</span></td>
                                                 <td>{{ formatBytes(transaction.size) }}</td>
                                             </tr>
                                         </tbody>
@@ -560,8 +560,8 @@
                                 </article>
                                 <article class="metric-card">
                                     <span class="metric-label">Outputs sum</span>
-                                    <strong>{{ formatCoins(txView.tx.totalOutputsAmount, 12) }}</strong>
-                                    <span class="metric-meta">Visible outputs total</span>
+                                    <strong>{{ transactionOutputsAmountText }}</strong>
+                                    <span class="metric-meta">{{ transactionOutputsAmountMeta }}</span>
                                 </article>
                                 <article class="metric-card">
                                     <span class="metric-label">Fee</span>
@@ -575,8 +575,8 @@
                                 </article>
                                 <article class="metric-card">
                                     <span class="metric-label">Mixin</span>
-                                    <strong>{{ txView.tx.mixin || '--' }}</strong>
-                                    <span class="metric-meta">Ring size indicator</span>
+                                    <strong>{{ transactionMixinText }}</strong>
+                                    <span class="metric-meta">{{ transactionMixinMeta }}</span>
                                 </article>
                                 <article class="metric-card">
                                     <span class="metric-label">Unlock time</span>
@@ -598,7 +598,16 @@
                                             <span>Block hash</span>
                                             <a class="hash-string inline-link" :href="linkTo({ name: 'block', params: { hash: txView.tx.blockHash } })" @click.prevent="goTo({ name: 'block', params: { hash: txView.tx.blockHash } })">{{ txView.tx.blockHash }}</a>
                                         </div>
-                                        <div class="detail-row"><span>Version</span><strong>{{ txView.tx.version || '--' }}</strong></div>
+                                        <div class="detail-row">
+                                            <span>Version</span>
+                                            <strong>
+                                                {{ txView.tx.version || '--' }}
+                                                <span v-if="transactionIsCT" class="status-pill is-online" style="margin-left: 0.5rem;" title="Confidential Transaction: amounts hidden behind Pedersen commitments and proven correct via MLSAG ring signatures and a Groth-Kohlweiss denomination proof.">
+                                                    <i class="fas fa-eye-slash" aria-hidden="true"></i>
+                                                    Confidential
+                                                </span>
+                                            </strong>
+                                        </div>
                                         <div class="detail-row"><span>Public key</span><strong class="hash-string">{{ txView.tx.extra && txView.tx.extra.publicKey ? txView.tx.extra.publicKey : '--' }}</strong></div>
                                         <div class="detail-row"><span>Raw extra</span><strong class="hash-string">{{ txView.tx.extra && txView.tx.extra.raw ? txView.tx.extra.raw : '--' }}</strong></div>
                                         <div class="detail-row" v-if="transactionPaymentId">
@@ -691,6 +700,9 @@
                                 <button type="button" class="tab-button" :class="{ active: activeTxTab === 'inputs' }" @click="activeTxTab = 'inputs'">Inputs</button>
                                 <button type="button" class="tab-button" :class="{ active: activeTxTab === 'outputs' }" @click="activeTxTab = 'outputs'">Outputs</button>
                                 <button type="button" class="tab-button" :class="{ active: activeTxTab === 'signatures' }" @click="activeTxTab = 'signatures'">Signatures</button>
+                                <button v-if="transactionIsCT" type="button" class="tab-button" :class="{ active: activeTxTab === 'ct-mlsag' }" @click="activeTxTab = 'ct-mlsag'">MLSAG <span class="count-pill">{{ transactionCtSignatures.length }}</span></button>
+                                <button v-if="transactionIsCT" type="button" class="tab-button" :class="{ active: activeTxTab === 'ct-proofs' }" @click="activeTxTab = 'ct-proofs'">GK proofs <span class="count-pill">{{ transactionCtProofs.length }}</span></button>
+                                <button v-if="transactionIsCT" type="button" class="tab-button" :class="{ active: activeTxTab === 'ct-kernel' }" @click="activeTxTab = 'ct-kernel'">Kernel</button>
                             </div>
 
                             <article v-if="activeTxTab === 'inputs'" class="panel">
@@ -700,15 +712,31 @@
                                             <tr>
                                                 <th>Amount</th>
                                                 <th>Key image</th>
+                                                <th v-if="transactionIsCT">Pseudo commitment</th>
                                                 <th>Output indexes</th>
                                                 <th>Type</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <tr v-for="(input, index) in txView.tx.inputs" :key="input.type + '-' + index">
-                                                <template v-if="input.type !== 'ff'">
+                                                <template v-if="input.type === '04'">
+                                                    <td>{{ Number(input.data.ringAmount) > 0 ? formatCoins(input.data.ringAmount, 12) : 'hidden' }}</td>
+                                                    <td><span class="hash-string">{{ input.data.keyImage }}</span></td>
+                                                    <td v-if="transactionIsCT"><span class="hash-string">{{ input.data.pseudoCommitment }}</span></td>
+                                                    <td>
+                                                        <template v-if="input.data.outputs && input.data.outputs.length">
+                                                            <span v-for="(ref, refIndex) in input.data.outputs" :key="ref.transactionHash + '-' + refIndex">
+                                                                <a class="inline-link" :href="linkTo({ name: 'transaction', params: { hash: ref.transactionHash }, query: { highlight: ref.number } })" @click.prevent="goTo({ name: 'transaction', params: { hash: ref.transactionHash }, query: { highlight: ref.number } })">{{ (input.data.ringOutputIndexes && input.data.ringOutputIndexes[refIndex] !== undefined) ? input.data.ringOutputIndexes[refIndex] : '?' }} (output #{{ ref.number }})</a><span v-if="refIndex < input.data.outputs.length - 1"> &middot; </span>
+                                                            </span>
+                                                        </template>
+                                                        <span v-else class="muted">ring of {{ input.data.mixin || 0 }} (references unavailable)</span>
+                                                    </td>
+                                                    <td>04 <span class="muted">(CT)</span></td>
+                                                </template>
+                                                <template v-else-if="input.type !== 'ff'">
                                                     <td>{{ formatCoins(input.data.input.amount, 12) }}</td>
                                                     <td><span class="hash-string">{{ input.data.input.k_image }}</span></td>
+                                                    <td v-if="transactionIsCT" class="muted">--</td>
                                                     <td>
                                                         <span v-for="(offset, offsetIndex) in input.data.input.key_offsets" :key="offset + '-' + offsetIndex">
                                                             <a class="inline-link" :href="linkTo({ name: 'transaction', params: { hash: input.data.outputs[offsetIndex].transactionHash }, query: { highlight: input.data.outputs[offsetIndex].number } })" @click.prevent="goTo({ name: 'transaction', params: { hash: input.data.outputs[offsetIndex].transactionHash }, query: { highlight: input.data.outputs[offsetIndex].number } })">{{ offset }}</a><span v-if="offsetIndex < input.data.input.key_offsets.length - 1"> &middot; </span>
@@ -718,7 +746,7 @@
                                                 </template>
                                                 <template v-else>
                                                     <td>{{ formatCoins(input.data.amount, 12) }}</td>
-                                                    <td colspan="2">Coinbase</td>
+                                                    <td :colspan="transactionIsCT ? 3 : 2">Coinbase</td>
                                                     <td>{{ input.type }}</td>
                                                 </template>
                                             </tr>
@@ -733,17 +761,27 @@
                                         <thead>
                                             <tr>
                                                 <th>Amount</th>
-                                                <th>Public key</th>
+                                                <th>Public key (stealth address)</th>
+                                                <th v-if="transactionIsCT">Commitment</th>
+                                                <th v-if="transactionIsCT">Masked amount</th>
                                                 <th>Index</th>
                                                 <th>Type</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <tr v-for="(output, index) in txView.tx.outputs" :key="output.output.target.data.key + '-' + index" :class="{ 'row-highlight': isOutputHighlighted(output, index) }">
-                                                <td>{{ formatCoins(output.output.amount, 12) }}</td>
-                                                <td><span class="hash-string">{{ output.output.target.data.key }}</span></td>
+                                            <tr v-for="(output, index) in txView.tx.outputs" :key="outputStealthKey(output.output.target) + '-' + index" :class="{ 'row-highlight': isOutputHighlighted(output, index) }">
+                                                <td>{{ output.output.target.type === '04' ? 'hidden' : formatCoins(output.output.amount, 12) }}</td>
+                                                <td><span class="hash-string">{{ outputStealthKey(output.output.target) }}</span></td>
+                                                <td v-if="transactionIsCT">
+                                                    <span v-if="output.output.target.type === '04'" class="hash-string">{{ output.output.target.data.commitment }}</span>
+                                                    <span v-else class="muted">--</span>
+                                                </td>
+                                                <td v-if="transactionIsCT">
+                                                    <span v-if="output.output.target.type === '04'" class="hash-string">{{ output.output.target.data.maskedAmount }}</span>
+                                                    <span v-else class="muted">--</span>
+                                                </td>
                                                 <td>{{ formatNumber(output.globalIndex) }}</td>
-                                                <td>{{ output.output.target.type }}</td>
+                                                <td>{{ output.output.target.type }}<span v-if="output.output.target.type === '04'" class="muted"> (CT)</span></td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -766,6 +804,88 @@
                                             </tr>
                                         </tbody>
                                     </table>
+                                </div>
+                            </article>
+
+                            <article v-if="transactionIsCT && activeTxTab === 'ct-mlsag'" class="panel">
+                                <p class="muted" style="margin: 0 0 0.75rem;">
+                                    Per-input <strong>MLSAG</strong> ring signatures. Each carries an initial challenge <code>c0</code>
+                                    and a flat <code>ss</code> array laid out as alternating spend / commitment scalars per ring member.
+                                </p>
+                                <div v-if="!transactionCtSignatures.length" class="muted">No MLSAG signatures exposed.</div>
+                                <div v-for="(sig, sigIndex) in transactionCtSignatures" :key="'mlsag-' + sigIndex" class="panel" style="margin-top: 0.75rem;">
+                                    <div class="panel-header">
+                                        <div>
+                                            <p class="eyebrow">Input {{ sigIndex }}</p>
+                                            <h3>{{ ctSignatureRingSize(sig) }} ring members</h3>
+                                        </div>
+                                    </div>
+                                    <div class="detail-row"><span>c0</span><strong class="hash-string">{{ sig.c0 }}</strong></div>
+                                    <div class="table-shell">
+                                        <table class="data-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>spend (ss[2k])</th>
+                                                    <th>commitment (ss[2k+1])</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="ringIndex in ctSignatureRingSize(sig)" :key="'ring-' + sigIndex + '-' + ringIndex">
+                                                    <td>{{ ringIndex - 1 }}</td>
+                                                    <td><span class="hash-string">{{ ctSignatureRingPair(sig, ringIndex - 1).spend }}</span></td>
+                                                    <td><span class="hash-string">{{ ctSignatureRingPair(sig, ringIndex - 1).commitment }}</span></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </article>
+
+                            <article v-if="transactionIsCT && activeTxTab === 'ct-proofs'" class="panel">
+                                <p class="muted" style="margin: 0 0 0.75rem;">
+                                    Per-output <strong>Groth&ndash;Kohlweiss</strong> denomination membership proofs. Each binds an output
+                                    commitment to one of the canonical bucket amounts without revealing which one.
+                                </p>
+                                <div v-if="!transactionCtProofs.length" class="muted">No GK proofs exposed.</div>
+                                <div v-for="(proof, proofIndex) in transactionCtProofs" :key="'gk-' + proofIndex" class="panel" style="margin-top: 0.75rem;">
+                                    <div class="panel-header">
+                                        <div>
+                                            <p class="eyebrow">Output {{ proofIndex }}</p>
+                                            <h3>GK denomination proof</h3>
+                                        </div>
+                                    </div>
+                                    <div class="detail-list">
+                                        <div class="detail-row" v-for="field in ctProofFields()" :key="'gk-' + proofIndex + '-' + field.key">
+                                            <span><strong>{{ field.key }}</strong> <span class="muted">({{ field.desc }})</span></span>
+                                            <strong v-if="Array.isArray(proof[field.key])">
+                                                <ol style="margin: 0; padding-left: 1.4em;">
+                                                    <li v-for="(value, valueIndex) in proof[field.key]" :key="'gk-' + proofIndex + '-' + field.key + '-' + valueIndex" class="hash-string">{{ value }}</li>
+                                                </ol>
+                                            </strong>
+                                            <strong v-else-if="proof[field.key] !== undefined && proof[field.key] !== null" class="hash-string">{{ proof[field.key] }}</strong>
+                                            <strong v-else class="muted">(not exposed by RPC)</strong>
+                                        </div>
+                                        <div class="detail-row">
+                                            <span><strong>f</strong> <span class="muted">(final response scalar)</span></span>
+                                            <strong v-if="proof.f !== undefined && proof.f !== null" class="hash-string">{{ proof.f }}</strong>
+                                            <strong v-else class="muted">(not exposed by RPC)</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </article>
+
+                            <article v-if="transactionIsCT && activeTxTab === 'ct-kernel'" class="panel">
+                                <p class="muted" style="margin: 0 0 0.75rem;">
+                                    The transaction <strong>kernel</strong> proves the balance equation
+                                    <code>&Sigma;C<sub>in</sub> &minus; &Sigma;C<sub>out</sub> &minus; fee&middot;H = excess&middot;G</code>
+                                    via a Schnorr signature over the excess commitment.
+                                </p>
+                                <div v-if="!transactionCtKernel" class="muted">Kernel not exposed by RPC.</div>
+                                <div v-else class="detail-list">
+                                    <div class="detail-row"><span>Excess commitment</span><strong class="hash-string">{{ transactionCtKernel.excess }}</strong></div>
+                                    <div class="detail-row"><span>Schnorr <em>e</em></span><strong class="hash-string">{{ transactionCtKernel.sig_e }}</strong></div>
+                                    <div class="detail-row"><span>Schnorr <em>s</em></span><strong class="hash-string">{{ transactionCtKernel.sig_s }}</strong></div>
                                 </div>
                             </article>
                         </template>
@@ -809,7 +929,7 @@
                                                 <a class="hash-string inline-link" :href="linkTo({ name: 'transaction', params: { hash: transaction.hash } })" @click.prevent="goTo({ name: 'transaction', params: { hash: transaction.hash } })">{{ transaction.hash }}</a>
                                             </td>
                                             <td>{{ formatCoins(transaction.fee, false) }}</td>
-                                            <td>{{ formatCoins(transaction.amount_out || transaction.totalOutputsAmount, false) }}</td>
+                                            <td><span :title="isConfidentialTx(transaction) ? 'Confidential transaction' : ''">{{ txOutputsAmountText(transaction) }}</span></td>
                                             <td>{{ formatBytes(transaction.size) }}</td>
                                         </tr>
                                     </tbody>

@@ -38,6 +38,24 @@
     ];
     var SCRIPT_PROMISES = Object.create(null);
 
+    // CT (Confidential Transactions) — version 2 hides per-output amounts behind
+    // Pedersen commitments and proves correctness via per-input MLSAG ring sigs,
+    // per-output Groth-Kohlweiss denomination proofs, and a transaction kernel.
+    var TRANSACTION_VERSION_CT = 2;
+
+    function isConfidentialTransaction(transaction) {
+        if (!transaction) return false;
+        if (transaction.version !== undefined && transaction.version !== null) {
+            return Number(transaction.version) === TRANSACTION_VERSION_CT;
+        }
+        // Short tx responses (gettransactionsbypaymentid, block.transactions[]) lack
+        // a version field, but daemon sets amount_out=0 for CT and never for transparent
+        // non-coinbase transactions; coinbase has fee=0, so this disambiguates safely.
+        var amount = Number(transaction.totalOutputsAmount || transaction.amount_out || 0);
+        var fee = Number(transaction.fee || 0);
+        return amount === 0 && fee > 0;
+    }
+
     function safeStorageGet(key) {
         try { return window.localStorage.getItem(key); } catch (error) { return null; }
     }
@@ -823,6 +841,48 @@
                 if (!this.txView.tx) return "--";
                 if (this.txView.tx.inputs && this.txView.tx.inputs[0] && this.txView.tx.inputs[0].type === "ff") return "Coinbase";
                 return this.formatCoins(this.txView.tx.fee, 12);
+            },
+            transactionIsCT: function () {
+                return isConfidentialTransaction(this.txView.tx);
+            },
+            transactionOutputsAmountText: function () {
+                if (!this.txView.tx) return "--";
+                var publicAmount = Number(this.txView.tx.totalOutputsAmount || 0);
+                if (this.transactionIsCT) {
+                    return publicAmount > 0 ? this.formatCoins(publicAmount, 12) + " (public part)" : "hidden";
+                }
+                return this.formatCoins(this.txView.tx.totalOutputsAmount, 12);
+            },
+            transactionOutputsAmountMeta: function () {
+                if (!this.txView.tx) return "Visible outputs total";
+                if (!this.transactionIsCT) return "Visible outputs total";
+                return Number(this.txView.tx.totalOutputsAmount || 0) > 0
+                    ? "Confidential outputs hidden"
+                    : "Confidential transaction";
+            },
+            transactionMixinText: function () {
+                if (!this.txView.tx) return "--";
+                var max = Number(this.txView.tx.mixin || 0);
+                var min = Number(this.txView.tx.minMixin || 0);
+                if (!max) return "--";
+                if (min && min !== max) return min + ".." + max;
+                return String(max);
+            },
+            transactionMixinMeta: function () {
+                if (!this.txView.tx) return "Ring size indicator";
+                var max = Number(this.txView.tx.mixin || 0);
+                var min = Number(this.txView.tx.minMixin || 0);
+                if (min && max && min !== max) return "Varies per input — see Inputs";
+                return "Ring size indicator";
+            },
+            transactionCtSignatures: function () {
+                return this.txView.tx && Array.isArray(this.txView.tx.ctSignatures) ? this.txView.tx.ctSignatures : [];
+            },
+            transactionCtProofs: function () {
+                return this.txView.tx && Array.isArray(this.txView.tx.ctProofs) ? this.txView.tx.ctProofs : [];
+            },
+            transactionCtKernel: function () {
+                return this.txView.tx && this.txView.tx.kernel && typeof this.txView.tx.kernel === "object" ? this.txView.tx.kernel : null;
             },
             transactionPaymentId: function () {
                 if (!this.txView.tx || !this.txView.tx.paymentId) return "";
@@ -1645,6 +1705,9 @@
                     transaction.inputs = Array.isArray(transaction.inputs) ? transaction.inputs : [];
                     transaction.outputs = Array.isArray(transaction.outputs) ? transaction.outputs : [];
                     transaction.signatures = Array.isArray(transaction.signatures) ? transaction.signatures : [];
+                    transaction.ctSignatures = Array.isArray(transaction.ctSignatures) ? transaction.ctSignatures : [];
+                    transaction.ctProofs = Array.isArray(transaction.ctProofs) ? transaction.ctProofs : [];
+                    transaction.kernel = transaction.kernel && typeof transaction.kernel === "object" ? transaction.kernel : null;
                     transaction.extra = transaction.extra && typeof transaction.extra === "object" ? transaction.extra : {};
                     var registrationKeys = parseAccountRegistrationExtra(transaction.extra.raw || "");
                     transaction.accountRegistration = registrationKeys ? {
@@ -2381,10 +2444,51 @@
                 if (this.route.query.highlight !== undefined && String(this.route.query.highlight) === String(index)) return true;
                 if (!this.txVerifier.result || !Array.isArray(this.txVerifier.result.outputs)) return false;
                 return this.txVerifier.result.outputs.some(function (candidate) {
-                    return candidate && candidate.target && candidate.target.data && output && output.output && output.output.target && output.output.target.data
-                        ? candidate.target.data.key === output.output.target.data.key
-                        : false;
+                    if (!candidate || !candidate.target || !candidate.target.data) return false;
+                    if (!output || !output.output || !output.output.target || !output.output.target.data) return false;
+                    var candidateKey = candidate.target.data.targetKey || candidate.target.data.key;
+                    var outputKey = output.output.target.data.targetKey || output.output.target.data.key;
+                    return candidateKey === outputKey;
                 });
+            },
+            isConfidentialTx: function (transaction) {
+                return isConfidentialTransaction(transaction);
+            },
+            txOutputsAmountText: function (transaction) {
+                if (!transaction) return "--";
+                if (isConfidentialTransaction(transaction)) return "hidden";
+                var amount = transaction.totalOutputsAmount;
+                if (amount === undefined) amount = transaction.amount_out;
+                return this.formatCoins(amount, false);
+            },
+            outputStealthKey: function (target) {
+                if (!target || !target.data) return "";
+                return target.data.targetKey || target.data.key || "";
+            },
+            ctTabHasContent: function (kind) {
+                if (kind === "mlsag") return this.transactionCtSignatures.length > 0;
+                if (kind === "proofs") return this.transactionCtProofs.length > 0;
+                if (kind === "kernel") return Boolean(this.transactionCtKernel);
+                return false;
+            },
+            ctSignatureRingPair: function (sig, index) {
+                var ss = sig && Array.isArray(sig.ss) ? sig.ss : [];
+                return { spend: ss[2 * index] || "", commitment: ss[2 * index + 1] || "" };
+            },
+            ctSignatureRingSize: function (sig) {
+                var ss = sig && Array.isArray(sig.ss) ? sig.ss : [];
+                return Math.floor(ss.length / 2);
+            },
+            ctProofFields: function () {
+                return [
+                    { key: "I", desc: "commitments to secret index bits" },
+                    { key: "A", desc: "bit randomness commitments" },
+                    { key: "B", desc: "bit value commitments" },
+                    { key: "Q", desc: "evaluation polynomial coefficients" },
+                    { key: "z", desc: "response scalars" },
+                    { key: "za", desc: "randomness response scalars" },
+                    { key: "zb", desc: "value response scalars" }
+                ];
             }
         },
         mounted: async function () {
