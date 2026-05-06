@@ -942,12 +942,16 @@
 					}
 					for (var i = 0; i < data.length; i++) {
 						var tx = data[i];
+						var ctTx = isConfidentialTx(tx);
 
 						var row = document.createElement('tr');
+						var amountCell = ctTx
+							? '<span title="Confidential transaction">hidden</span>'
+							: getReadableCoins(tx.amount_out, 4, true);
 						var columns =
 							'<td class="date-time">' + formatDate(tx.receive_time) + '<br />(<span class="mtx-ago"></span>)' +
 							'</td>' +
-							'<td>' + getReadableCoins(tx.amount_out, 4, true) + '</td>' +
+							'<td>' + amountCell + '</td>' +
 							'<td>' + getReadableCoins(tx.fee, 4, true) + '</td>' +
 							'<td>' + formatBytes(parseInt(tx.size)) + '</td>' +
 							'<td>' + formatPaymentLink(tx.hash) + '</td>';
@@ -957,7 +961,9 @@
 						.toISOString());
 
 						txcount = txcount + 1;
-						totalAmount = tx.amount_out + totalAmount;
+						// CT entries report amount_out=0; skip them in the public total rather
+						// than count them as zero-value transfers.
+						if (!ctTx) totalAmount = tx.amount_out + totalAmount;
 						totalFee = totalFee + tx.fee;
 						totalSize = totalSize + tx.size;
 
