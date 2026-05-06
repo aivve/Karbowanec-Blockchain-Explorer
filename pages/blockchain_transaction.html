@@ -52,9 +52,9 @@
 					<i class="fas fa-donate fa-fw tooltipped" data-position="top" data-tooltip="Money that goes to the miner, who included this transaction into block."></i>
 					Fee: <span id="transaction.fee"></span>
 				</li>
-				<li class="collection-item">
+				<li class="collection-item" id="transaction_amount_out_li">
 					<i class="fas fa-money-bill-wave-alt fa-fw tooltipped" data-position="top" data-tooltip="It does not mean that this is the amount that is actually transferred."></i>
-					Sum of outputs: <span id="transaction.amount_out"></span>
+					<span id="transaction.amount_out_label">Sum of outputs</span>: <span id="transaction.amount_out"></span>
 				</li>
 				<li class="collection-item" data-position="top" data-tooltip="">
 					<i class="fas fa-weight-hanging fa-fw tooltipped" data-position="top" data-tooltip="Size of the transaction."></i>
@@ -63,6 +63,11 @@
 				<li class="collection-item" id="div_transaction_mixin">
 					<i class="fas fa-mortar-pestle fa-fw tooltipped" data-position="top" data-tooltip="Denotes how many random inputs are mixed within this transactions in order to achieve desired level of anonimity. Mixin count 1 means no additional inputs are mixed in and thus each input can be traced back."></i>
 					Mixin count: <span id="transaction.mixin"></span>
+					<span id="transaction.mixin_note" style="display: none;" class="grey-text"> (varies per input — see Inputs)</span>
+				</li>
+				<li class="collection-item" id="transaction_ct_badge" style="display: none;">
+					<i class="fas fa-eye-slash fa-fw tooltipped" data-position="top" data-tooltip="Confidential Transaction: amounts are hidden behind Pedersen commitments and proven correct with MLSAG ring signatures and a denomination GK proof."></i>
+					<span class="new badge teal" data-badge-caption="">Confidential transaction</span>
 				</li>
 				<li class="collection-item" id="transaction_version">
 					<i class="fas fa-flag fa-fw tooltipped" data-position="top" data-tooltip="Version of the transaction."></i>
@@ -116,9 +121,12 @@
 			<div class="card hoverable">
 				<div class="card-tabs">
 					<ul class="tabs tabs-fixed-width" id="tab_menu">
-						<li class="tab col s3"><a href="#tab_inputs" class="light-blue-text text-darken-4 waves-effect waves-block waves-light">Inputs <span class="badge" id="inputs_count"></span></a></li>
-						<li class="tab col s3"><a href="#tab_outputs" class="active light-blue-text text-darken-4 waves-effect waves-block waves-light">Outputs <span class="badge" id="outputs_count"></span></a></li>
-						<li class="tab col s3"><a href="#tab_signatures" class="light-blue-text text-darken-4 waves-effect waves-block waves-light">Signatures <span class="badge" id="signatures_count"></span></a></li>
+						<li class="tab"><a href="#tab_inputs" class="light-blue-text text-darken-4 waves-effect waves-block waves-light">Inputs <span class="badge" id="inputs_count"></span></a></li>
+						<li class="tab"><a href="#tab_outputs" class="active light-blue-text text-darken-4 waves-effect waves-block waves-light">Outputs <span class="badge" id="outputs_count"></span></a></li>
+						<li class="tab"><a href="#tab_signatures" class="light-blue-text text-darken-4 waves-effect waves-block waves-light">Signatures <span class="badge" id="signatures_count"></span></a></li>
+						<li class="tab ct_only" style="display: none;"><a href="#tab_ct_signatures" class="light-blue-text text-darken-4 waves-effect waves-block waves-light">MLSAG <span class="badge" id="ct_signatures_count"></span></a></li>
+						<li class="tab ct_only" style="display: none;"><a href="#tab_ct_proofs" class="light-blue-text text-darken-4 waves-effect waves-block waves-light">GK&nbsp;Proofs <span class="badge" id="ct_proofs_count"></span></a></li>
+						<li class="tab ct_only" style="display: none;"><a href="#tab_ct_kernel" class="light-blue-text text-darken-4 waves-effect waves-block waves-light">Kernel</a></li>
 					</ul>
 				</div>
 				<div class="card-content grey lighten-4">
@@ -129,6 +137,7 @@
 									<tr>
 										<th><i class="fas fa-money-bill-wave-alt"></i>&nbsp;Amount</th>
 										<th><i class="fas fa-fingerprint"></i>&nbsp;Key&nbsp;Image</th>
+										<th class="ct_only" style="display: none;"><i class="fas fa-shield-alt"></i>&nbsp;Pseudo&nbsp;commitment</th>
 										<th><i class="fas fa-arrows-alt"></i>&nbsp;Output&nbsp;Indexes</th>
 										<th><i class="fas fa-layer-group"></i>&nbsp;Type</th>
 									</tr>
@@ -146,6 +155,8 @@
 									<tr>
 										<th><i class="fas fa-money-bill-wave-alt"></i>&nbsp;Amount</th>
 										<th><i class="fas fa-key"></i>&nbsp;Public&nbsp;Key&nbsp;(stealth&nbsp;address)</th>
+										<th class="ct_only" style="display: none;"><i class="fas fa-shield-alt"></i>&nbsp;Commitment</th>
+										<th class="ct_only" style="display: none;"><i class="fas fa-mask"></i>&nbsp;Masked&nbsp;amount</th>
 										<th><i class="fas fa-arrows-alt"></i>&nbsp;Output&nbsp;Index</th>
 										<th><i class="fas fa-layer-group"></i>&nbsp;Type</th>
 									</tr>
@@ -170,6 +181,34 @@
 								</tbody>
 							</table>
 						</div>
+					</div>
+					<div class="col s12" id="tab_ct_signatures">
+						<p class="grey-text" style="margin-top: 12px;">
+							Per-input <strong>MLSAG</strong> ring signatures. Each signature carries an initial challenge <code>c0</code>
+							and a flat <code>ss</code> array laid out as alternating spend / commitment scalars for every ring member.
+						</p>
+						<div id="ct_signatures_rows"></div>
+					</div>
+					<div class="col s12" id="tab_ct_proofs">
+						<p class="grey-text" style="margin-top: 12px;">
+							Per-output <strong>Groth&ndash;Kohlweiss</strong> denomination membership proofs. Each proof binds the output
+							commitment to one of the canonical bucket amounts without revealing which one.
+						</p>
+						<div id="ct_proofs_rows"></div>
+					</div>
+					<div class="col s12" id="tab_ct_kernel">
+						<p class="grey-text" style="margin-top: 12px;">
+							The transaction <strong>kernel</strong> proves the balance equation
+							<code>&Sigma;C<sub>in</sub> &minus; &Sigma;C<sub>out</sub> &minus; fee&middot;H = excess&middot;G</code>
+							via a Schnorr signature over the excess commitment.
+						</p>
+						<table class="highlight">
+							<tbody>
+								<tr><th style="width: 220px;">Excess commitment</th><td style="word-break: break-all;" id="ct_kernel_excess"></td></tr>
+								<tr><th>Schnorr <em>e</em></th><td style="word-break: break-all;" id="ct_kernel_sig_e"></td></tr>
+								<tr><th>Schnorr <em>s</em></th><td style="word-break: break-all;" id="ct_kernel_sig_s"></td></tr>
+							</tbody>
+						</table>
 					</div>
 					<div style="clear: both;"></div>
 				</div>
@@ -306,17 +345,45 @@
 			ago = new Date(transaction.timestamp * 1000).toISOString();
 			$(".transaction-timeago").timeago('update', ago);
 		}
-		updateText('transaction.amount_out', getReadableCoins(transaction.totalOutputsAmount));
+		var txIsCT = isConfidentialTx(transaction);
+		if (txIsCT) {
+			$('#transaction_ct_badge').show();
+			$('.ct_only').show();
+		} else {
+			$('#transaction_ct_badge').hide();
+			$('.ct_only').hide();
+		}
+		var publicOut = parseInt(transaction.totalOutputsAmount || 0);
+		if (txIsCT) {
+			if (publicOut > 0) {
+				updateText('transaction.amount_out_label', 'Public output amount');
+				updateText('transaction.amount_out', getReadableCoins(publicOut) + ' (confidential outputs hidden)');
+			} else {
+				updateText('transaction.amount_out_label', 'Sum of outputs');
+				updateText('transaction.amount_out', 'hidden (confidential)');
+			}
+		} else {
+			updateText('transaction.amount_out_label', 'Sum of outputs');
+			updateText('transaction.amount_out', getReadableCoins(transaction.totalOutputsAmount));
+		}
 		if (typeof transaction.inputs !== 'undefined' && transaction.inputs[0].type != "ff") {
 			updateText('transaction.fee', getReadableCoins(transaction.fee));
 		} else {
 			$('#transaction_fee').hide();
 		}
-		updateText('transaction.mixin', transaction.mixin);
-		if (!transaction.mixin) {
+		var minMixin = parseInt(transaction.minMixin || 0);
+		var maxMixin = parseInt(transaction.mixin || 0);
+		if (!maxMixin) {
 			$('#div_transaction_mixin').hide();
 		} else {
 			$('#div_transaction_mixin').show();
+			if (minMixin && minMixin !== maxMixin) {
+				updateText('transaction.mixin', minMixin + '..' + maxMixin);
+				$('#transaction\.mixin_note').show();
+			} else {
+				updateText('transaction.mixin', maxMixin);
+				$('#transaction\.mixin_note').hide();
+			}
 		}
 		if (typeof transaction.paymentId !== 'undefined' && transaction.paymentId !=
 			0000000000000000000000000000000000000000000000000000000000000000) {
@@ -362,6 +429,8 @@
 			renderOutputs(transaction.outputs);
 			console.log("rendering signatures...");
 			renderSignatures(transaction.signatures);
+			console.log("rendering CT body...");
+			renderCTBody(transaction);
 
 			setTimeout(function () {
 				var instance = M.Tabs.init(document.getElementById('tab_menu'));
@@ -390,31 +459,62 @@
 		return html;
 	}
 
+	function inputTypeLabel(t) {
+		if (t === "ff") return "ff (coinbase)";
+		if (t === "02") return "02 (key)";
+		if (t === "04") return "04 (CT)";
+		return t;
+	}
+
+	function renderConfidentialInputRefs(d) {
+		if (!d.outputs || d.outputs.length === 0) {
+			return 'ring of ' + (d.mixin || 0) + ' (references unavailable)';
+		}
+		var parts = [];
+		for (var k = 0; k < d.outputs.length; k++) {
+			var offset = (d.ringOutputIndexes && d.ringOutputIndexes[k] != null) ? d.ringOutputIndexes[k] : '?';
+			var href = getTransactionUrlOutputIndex(d.outputs[k].transactionHash, d.outputs[k].number);
+			parts.push('<a href="' + href + '">' + offset + ' (Output No ' + d.outputs[k].number + ')</a>');
+		}
+		return parts.join(' &bull; ');
+	}
+
 	function getInputCells(input) {
-		if (input.type != "ff") {
+		var showCt = $('#tab_inputs th.ct_only').is(':visible');
+		if (input.type === "04") {
+			var d = input.data;
+			var amount = (d.ringAmount && parseInt(d.ringAmount) > 0) ? getReadableCoins(d.ringAmount) : 'hidden';
+			return '<td>' + amount + '</td>' +
+				'<td>' + d.keyImage + '</td>' +
+				(showCt ? ('<td class="ct_only" style="word-break: break-all;">' + d.pseudoCommitment + '</td>') : '') +
+				'<td>' + renderConfidentialInputRefs(d) + '</td>' +
+				'<td>' + inputTypeLabel(input.type) + '</td>';
+		}
+		if (input.type !== "ff") {
 			return '<td>' + getReadableCoins(input.data.input.amount) + '</td>' +
 				'<td>' + input.data.input.k_image + '</td>' +
+				(showCt ? '<td class="ct_only">-</td>' : '') +
 				'<td>' + renderInputIndexes(input.data.input.key_offsets, input.data.outputs) + '</td>' +
-				'<td>' + input.type + '</td>';
-		} else {
-			return '<td>' + getReadableCoins(input.data.amount) + '</td>' +
-				'<td colspan="2">' + "coinbase" + '</td>' +
-				'<td>' + input.type + '</td>';
+				'<td>' + inputTypeLabel(input.type) + '</td>';
 		}
+		return '<td>' + getReadableCoins(input.data.amount) + '</td>' +
+			'<td colspan="' + (showCt ? 3 : 2) + '">' + "coinbase" + '</td>' +
+			'<td>' + inputTypeLabel(input.type) + '</td>';
 	}
 
 	function getInputRowElement(input, jsonString) {
 		var row = document.createElement('tr');
-		if (input.type != 'ff') {
-			row.setAttribute('data-json', jsonString);
+		row.setAttribute('data-json', jsonString);
+		row.setAttribute('type', input.type);
+		if (input.type === "04") {
+			row.setAttribute('data-k_image', input.data.keyImage);
+			row.setAttribute('id', 'inputRow' + input.data.keyImage);
+		} else if (input.type !== 'ff') {
 			row.setAttribute('data-k_image', input.data.input.k_image);
 			row.setAttribute('data-key_offsets', input.data.input.key_offsets);
 			row.setAttribute('id', 'inputRow' + input.data.input.k_image);
-			row.setAttribute('type', input.type);
 		} else {
-			row.setAttribute('data-json', jsonString);
 			row.setAttribute('id', 'inputRow' + input.data.height);
-			row.setAttribute('type', input.type);
 		}
 		row.innerHTML = getInputCells(input);
 		return row;
@@ -437,7 +537,8 @@
 			for (var i = 0; i < inputResults.length; i++) {
 				var input = inputResults[i];
 				var inputJson = JSON.stringify(input);
-				var existingRow = document.getElementById('inputRow' + input.data.input.k_image);
+				var rowKey = (input.type === "04") ? input.data.keyImage : (input.data.input ? input.data.input.k_image : input.data.height);
+				var existingRow = document.getElementById('inputRow' + rowKey);
 				if (existingRow && existingRow.getAttribute('data-json') !== inputJson) {
 					$(existingRow).replaceWith(getInputRowElement(input, inputJson));
 				} else if (!existingRow) {
@@ -449,18 +550,38 @@
 		updateText('inputs_count', inputResults.length);
 	}
 
+	function outputTypeLabel(t) {
+		if (t === "02") return "02 (key)";
+		if (t === "04") return "04 (CT)";
+		return t;
+	}
+
+	function getOutputStealthAddress(target) {
+		if (!target || !target.data) return '';
+		return target.data.targetKey || target.data.key || '';
+	}
+
 	function getOutputCells(output) {
-		return '<td>' + getReadableCoins(output.output.amount) + '</td>' +
-			'<td>' + output.output.target.data.key + '</td>' +
+		var showCt = $('#tab_outputs th.ct_only').is(':visible');
+		var target = output.output.target;
+		var stealth = getOutputStealthAddress(target);
+		var amountCell = (target.type === "04") ? 'hidden' : getReadableCoins(output.output.amount);
+		var commitmentCell = (target.type === "04") ? (target.data.commitment || '') : '-';
+		var maskedCell = (target.type === "04") ? (target.data.maskedAmount || '') : '-';
+		return '<td>' + amountCell + '</td>' +
+			'<td>' + stealth + '</td>' +
+			(showCt ? '<td class="ct_only" style="word-break: break-all;">' + commitmentCell + '</td>' : '') +
+			(showCt ? '<td class="ct_only">' + maskedCell + '</td>' : '') +
 			'<td>' + output.globalIndex + '</td>' +
-			'<td>' + output.output.target.type + '</td>';
+			'<td>' + outputTypeLabel(target.type) + '</td>';
 	}
 
 	function getOutputRowElement(output, jsonString) {
 		var row = document.createElement('tr');
+		var stealth = getOutputStealthAddress(output.output.target);
 		row.setAttribute('data-json', jsonString);
-		row.setAttribute('data-k_image', output.output.target.data.key);
-		row.setAttribute('id', 'outputRow' + output.output.target.data.key);
+		row.setAttribute('data-k_image', stealth);
+		row.setAttribute('id', 'outputRow' + stealth);
 		row.innerHTML = getOutputCells(output);
 		return row;
 	}
@@ -470,7 +591,7 @@
 		for (var i = 0; i < outputResults.length; i++) {
 			var output = outputResults[i];
 			var outputJson = JSON.stringify(output);
-			var existingRow = document.getElementById('outputRow' + output.output.target.data.key);
+			var existingRow = document.getElementById('outputRow' + getOutputStealthAddress(output.output.target));
 			if (existingRow && existingRow.getAttribute('data-json') !== outputJson) {
 				$(existingRow).replaceWith(getOutputRowElement(output, outputJson));
 			} else if (!existingRow) {
@@ -514,6 +635,77 @@
 				var sigElement = getSigRowElement(sig, sigJson);
 				$signatureRows.append(sigElement);
 			}
+		}
+	}
+
+	function escapeHtml(s) {
+		if (s == null) return '';
+		return String(s)
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&#39;');
+	}
+
+	function renderCTBody(transaction) {
+		var $sigs = $('#ct_signatures_rows');
+		var $proofs = $('#ct_proofs_rows');
+		$sigs.empty();
+		$proofs.empty();
+		if (!isConfidentialTx(transaction)) {
+			return;
+		}
+
+		var kernel = transaction.kernel || {};
+		updateText('ct_kernel_excess', kernel.excess || '(missing)');
+		updateText('ct_kernel_sig_e', kernel.sig_e || '(missing)');
+		updateText('ct_kernel_sig_s', kernel.sig_s || '(missing)');
+
+		var ctSigs = transaction.ctSignatures || [];
+		updateText('ct_signatures_count', ctSigs.length);
+		for (var i = 0; i < ctSigs.length; i++) {
+			var sig = ctSigs[i] || {};
+			var ss = sig.ss || [];
+			var ringSize = Math.floor(ss.length / 2);
+			var rows = '';
+			for (var r = 0; r < ringSize; r++) {
+				rows += '<tr><td>' + r + '</td>' +
+					'<td style="word-break: break-all; font-family: monospace;">' + escapeHtml(ss[2*r]) + '</td>' +
+					'<td style="word-break: break-all; font-family: monospace;">' + escapeHtml(ss[2*r + 1]) + '</td></tr>';
+			}
+			var header = '<div style="margin-top: 12px;"><strong>Input ' + i + '</strong> &mdash; ' + ringSize + ' ring members</div>';
+			var c0 = '<div style="margin: 6px 0; word-break: break-all;"><span class="grey-text">c0:</span> <code>' + escapeHtml(sig.c0) + '</code></div>';
+			var table = '<table class="highlight"><thead><tr><th>#</th><th>spend (ss[2k])</th><th>commitment (ss[2k+1])</th></tr></thead><tbody>' + rows + '</tbody></table>';
+			$sigs.append(header + c0 + table);
+		}
+
+		var ctProofs = transaction.ctProofs || [];
+		updateText('ct_proofs_count', ctProofs.length);
+		for (var p = 0; p < ctProofs.length; p++) {
+			var proof = ctProofs[p] || {};
+			var header = '<div style="margin-top: 12px;"><strong>Output ' + p + '</strong> &mdash; GK denomination proof</div>';
+			var fields = [['I', 'commitments to secret index bits'], ['A', 'bit randomness commitments'], ['B', 'bit value commitments'], ['Q', 'evaluation polynomial coefficients'], ['z', 'response scalars'], ['za', 'randomness response scalars'], ['zb', 'value response scalars']];
+			var tbody = '';
+			for (var f = 0; f < fields.length; f++) {
+				var key = fields[f][0];
+				var desc = fields[f][1];
+				var val = proof[key];
+				var cell;
+				if (Array.isArray(val)) {
+					var items = val.map(function (v) { return '<li><code style="word-break: break-all;">' + escapeHtml(v) + '</code></li>'; }).join('');
+					cell = '<ol style="margin: 0; padding-left: 1.4em;">' + items + '</ol>';
+				} else if (val == null) {
+					cell = '<span class="grey-text">(not exposed by RPC)</span>';
+				} else {
+					cell = '<code style="word-break: break-all;">' + escapeHtml(val) + '</code>';
+				}
+				tbody += '<tr><th style="width: 70px;">' + key + '</th><td class="grey-text" style="width: 280px;">' + desc + '</td><td>' + cell + '</td></tr>';
+			}
+			var fScalar = proof.f != null ? '<code style="word-break: break-all;">' + escapeHtml(proof.f) + '</code>' : '<span class="grey-text">(not exposed by RPC)</span>';
+			tbody += '<tr><th>f</th><td class="grey-text">final response scalar</td><td>' + fScalar + '</td></tr>';
+			var table = '<table class="highlight"><tbody>' + tbody + '</tbody></table>';
+			$proofs.append(header + table);
 		}
 	}
 
@@ -575,7 +767,8 @@
 					for (var i = 0; i < output_results.length; i++) {
 						$('#outputs_rows tr').each(function () {
 							$this = $(this);
-							if ($this.attr('data-k_image') === output_results[i].target.data.key) {
+							var tgt = output_results[i].target.data;
+							if ($this.attr('data-k_image') === (tgt.targetKey || tgt.key)) {
 								$this.addClass("teal lighten-5");
 							}
 						});
@@ -620,7 +813,8 @@
 					for (var i = 0; i < output_results.length; i++) {
 						$('#outputs_rows tr').each(function () {
 							$this = $(this);
-							if ($this.attr('data-k_image') === output_results[i].target.data.key) {
+							var tgt = output_results[i].target.data;
+							if ($this.attr('data-k_image') === (tgt.targetKey || tgt.key)) {
 								$this.addClass("teal lighten-5");
 							}
 						});
@@ -660,7 +854,8 @@
 						for (var i = 0; i < output_results.length; i++) {
 							$('#outputs_rows tr').each(function () {
 								$this = $(this);
-								if ($this.attr('data-k_image') === output_results[i].target.data.key) {
+								var tgt = output_results[i].target.data;
+							if ($this.attr('data-k_image') === (tgt.targetKey || tgt.key)) {
 									$this.addClass("teal lighten-5");
 								}
 							});

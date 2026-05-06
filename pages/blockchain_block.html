@@ -281,7 +281,7 @@
 		return '<td>' + '</td>' +
 			'<td>' + formatPaymentLink(transaction.hash) + '</td>' +
 			'<td>' + getReadableCoins(transaction.fee, 4, true) + '</td>' +
-			'<td>' + getReadableCoins(transaction.totalOutputsAmount, 4, true) + '</td>' +
+			'<td>' + (isConfidentialTx(transaction) ? '<span title="Confidential transaction">hidden</span>' : getReadableCoins(transaction.totalOutputsAmount, 4, true)) + '</td>' +
 			'<td>' + formatBytes(parseInt(transaction.size)) + '</td>';
 	}
 

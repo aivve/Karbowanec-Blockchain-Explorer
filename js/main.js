@@ -102,6 +102,29 @@ function getReadableCoins(coins, digits, withoutSymbol) {
     return amount + (withoutSymbol ? '' : (' ' + symbol));
 }
 
+// Karbo confidential transactions hide amounts. CT outputs serialize their public
+// `amount` as 0; transparent transactions never have all-zero outputs together with
+// a non-zero fee. Use that as the heuristic when a transaction-list response does
+// not carry a version field.
+var TRANSACTION_VERSION_CT = 2;
+
+function isConfidentialTx(transaction) {
+    if (!transaction) return false;
+    if (typeof transaction.version !== 'undefined') {
+        return parseInt(transaction.version) === TRANSACTION_VERSION_CT;
+    }
+    var amount = parseInt(transaction.totalOutputsAmount || transaction.amount_out || 0);
+    var fee = parseInt(transaction.fee || 0);
+    return amount === 0 && fee > 0;
+}
+
+function getReadableTxAmount(transaction, digits, withoutSymbol) {
+    if (isConfidentialTx(transaction)) return 'hidden';
+    var amount = transaction.totalOutputsAmount;
+    if (typeof amount === 'undefined') amount = transaction.amount_out;
+    return getReadableCoins(amount, digits, withoutSymbol);
+}
+
 function correctOverflow(value) {
     const MAX_UINT64 = BigInt("18446744073709551616"); // 2^64
     let num = BigInt(value);
