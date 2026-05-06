@@ -712,14 +712,14 @@
                                                 <th>Amount</th>
                                                 <th>Key image</th>
                                                 <th v-if="transactionIsCT">Pseudo commitment</th>
-                                                <th>Output indexes</th>
+                                                <th style="min-width: 320px;">Output indexes</th>
                                                 <th>Type</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <tr v-for="(input, index) in txView.tx.inputs" :key="input.type + '-' + index">
                                                 <template v-if="input.type === '04'">
-                                                    <td>{{ ctRingAmountText(input.data.ringAmount) }}</td>
+                                                    <td><span class="nowrap-value">{{ ctRingAmountText(input.data.ringAmount) }}</span></td>
                                                     <td><span class="hash-string">{{ input.data.keyImage }}</span></td>
                                                     <td v-if="transactionIsCT"><span class="hash-string">{{ input.data.pseudoCommitment }}</span></td>
                                                     <td class="tx-output-refs">
@@ -733,7 +733,7 @@
                                                     <td><span class="tx-type-cell">04 <i class="fas fa-eye-slash" aria-hidden="true" title="Confidential"></i></span></td>
                                                 </template>
                                                 <template v-else-if="input.type !== 'ff'">
-                                                    <td>{{ formatCoins(input.data.input.amount, 12) }}</td>
+                                                    <td><span class="nowrap-value">{{ formatCoins(input.data.input.amount, 12) }}</span></td>
                                                     <td><span class="hash-string">{{ input.data.input.k_image }}</span></td>
                                                     <td v-if="transactionIsCT" class="muted">--</td>
                                                     <td class="tx-output-refs">
@@ -744,7 +744,7 @@
                                                     <td>{{ input.type }}</td>
                                                 </template>
                                                 <template v-else>
-                                                    <td>{{ formatCoins(input.data.amount, 12) }}</td>
+                                                    <td><span class="nowrap-value">{{ formatCoins(input.data.amount, 12) }}</span></td>
                                                     <td :colspan="transactionIsCT ? 3 : 2">Coinbase</td>
                                                     <td>{{ input.type }}</td>
                                                 </template>
@@ -769,7 +769,7 @@
                                         </thead>
                                         <tbody>
                                             <tr v-for="(output, index) in txView.tx.outputs" :key="outputStealthKey(output.output.target) + '-' + index" :class="{ 'row-highlight': isOutputHighlighted(output, index) }">
-                                                <td>{{ output.output.target.type === '04' ? 'hidden' : formatCoins(output.output.amount, 12) }}</td>
+                                                <td><span class="nowrap-value">{{ output.output.target.type === '04' ? 'hidden' : formatCoins(output.output.amount, 12) }}</span></td>
                                                 <td><span class="hash-string">{{ outputStealthKey(output.output.target) }}</span></td>
                                                 <td v-if="transactionIsCT">
                                                     <span v-if="output.output.target.type === '04'" class="hash-string">{{ outputCommitment(output.output.target) }}</span>
