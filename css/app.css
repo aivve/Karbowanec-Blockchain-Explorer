@@ -901,6 +901,35 @@ html[data-theme="dark"] .data-table td .hash-string {
     white-space: nowrap;
 }
 
+.ct-proof-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.ct-proof-desc {
+    color: var(--text-soft);
+    font-size: 0.78rem;
+    margin: 0;
+}
+
+.ct-proof-list {
+    margin: 0;
+    padding-left: 1.4em;
+}
+
+.tx-type-cell {
+    align-items: center;
+    display: inline-flex;
+    gap: 0.35rem;
+    white-space: nowrap;
+}
+
+.tx-output-refs {
+    min-width: 240px;
+}
+
 .hash-string {
     color: inherit;
     display: block;

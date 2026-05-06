@@ -722,7 +722,7 @@
                                                     <td>{{ ctRingAmountText(input.data.ringAmount) }}</td>
                                                     <td><span class="hash-string">{{ input.data.keyImage }}</span></td>
                                                     <td v-if="transactionIsCT"><span class="hash-string">{{ input.data.pseudoCommitment }}</span></td>
-                                                    <td>
+                                                    <td class="tx-output-refs">
                                                         <template v-if="input.data.outputs && input.data.outputs.length">
                                                             <span v-for="(ref, refIndex) in input.data.outputs" :key="ref.transactionHash + '-' + refIndex">
                                                                 <a class="inline-link" :href="linkTo({ name: 'transaction', params: { hash: ref.transactionHash }, query: { highlight: ref.number } })" @click.prevent="goTo({ name: 'transaction', params: { hash: ref.transactionHash }, query: { highlight: ref.number } })">{{ (input.data.ringOutputIndexes && input.data.ringOutputIndexes[refIndex] !== undefined) ? input.data.ringOutputIndexes[refIndex] : '?' }} (output #{{ ref.number }})</a><span v-if="refIndex < input.data.outputs.length - 1"> &middot; </span>
@@ -730,13 +730,13 @@
                                                         </template>
                                                         <span v-else class="muted">ring of {{ input.data.mixin || 0 }} (references unavailable)</span>
                                                     </td>
-                                                    <td>04 <i class="fas fa-eye-slash" aria-hidden="true" title="Confidential"></i></td>
+                                                    <td><span class="tx-type-cell">04 <i class="fas fa-eye-slash" aria-hidden="true" title="Confidential"></i></span></td>
                                                 </template>
                                                 <template v-else-if="input.type !== 'ff'">
                                                     <td>{{ formatCoins(input.data.input.amount, 12) }}</td>
                                                     <td><span class="hash-string">{{ input.data.input.k_image }}</span></td>
                                                     <td v-if="transactionIsCT" class="muted">--</td>
-                                                    <td>
+                                                    <td class="tx-output-refs">
                                                         <span v-for="(offset, offsetIndex) in input.data.input.key_offsets" :key="offset + '-' + offsetIndex">
                                                             <a class="inline-link" :href="linkTo({ name: 'transaction', params: { hash: input.data.outputs[offsetIndex].transactionHash }, query: { highlight: input.data.outputs[offsetIndex].number } })" @click.prevent="goTo({ name: 'transaction', params: { hash: input.data.outputs[offsetIndex].transactionHash }, query: { highlight: input.data.outputs[offsetIndex].number } })">{{ offset }}</a><span v-if="offsetIndex < input.data.input.key_offsets.length - 1"> &middot; </span>
                                                         </span>
@@ -781,8 +781,10 @@
                                                 </td>
                                                 <td>{{ formatNumber(output.globalIndex) }}</td>
                                                 <td>
-                                                    {{ output.output.target.type }}
-                                                    <i v-if="output.output.target.type === '04'" class="fas fa-eye-slash" aria-hidden="true" title="Confidential"></i>
+                                                    <span class="tx-type-cell">
+                                                        {{ output.output.target.type }}
+                                                        <i v-if="output.output.target.type === '04'" class="fas fa-eye-slash" aria-hidden="true" title="Confidential"></i>
+                                                    </span>
                                                 </td>
                                             </tr>
                                         </tbody>
@@ -860,19 +862,23 @@
                                     </div>
                                     <div class="detail-list">
                                         <div class="detail-row" v-for="field in ctProofFields()" :key="'gk-' + proofIndex + '-' + field.key">
-                                            <span><strong>{{ field.key }}</strong> <span class="muted">({{ field.desc }})</span></span>
-                                            <strong v-if="Array.isArray(proof[field.key])">
-                                                <ol style="margin: 0; padding-left: 1.4em;">
+                                            <span>{{ field.key }}</span>
+                                            <div class="ct-proof-cell">
+                                                <p class="ct-proof-desc">{{ field.desc }}</p>
+                                                <ol v-if="Array.isArray(proof[field.key])" class="ct-proof-list">
                                                     <li v-for="(value, valueIndex) in proof[field.key]" :key="'gk-' + proofIndex + '-' + field.key + '-' + valueIndex" class="hash-string">{{ value }}</li>
                                                 </ol>
-                                            </strong>
-                                            <strong v-else-if="proof[field.key] !== undefined && proof[field.key] !== null" class="hash-string">{{ proof[field.key] }}</strong>
-                                            <strong v-else class="muted">(not exposed by RPC)</strong>
+                                                <strong v-else-if="proof[field.key] !== undefined && proof[field.key] !== null" class="hash-string">{{ proof[field.key] }}</strong>
+                                                <strong v-else class="muted">(not exposed by RPC)</strong>
+                                            </div>
                                         </div>
                                         <div class="detail-row">
-                                            <span><strong>f</strong> <span class="muted">(final response scalar)</span></span>
-                                            <strong v-if="proof.f !== undefined && proof.f !== null" class="hash-string">{{ proof.f }}</strong>
-                                            <strong v-else class="muted">(not exposed by RPC)</strong>
+                                            <span>f</span>
+                                            <div class="ct-proof-cell">
+                                                <p class="ct-proof-desc">final response scalar</p>
+                                                <strong v-if="proof.f !== undefined && proof.f !== null" class="hash-string">{{ proof.f }}</strong>
+                                                <strong v-else class="muted">(not exposed by RPC)</strong>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
