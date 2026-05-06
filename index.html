@@ -213,7 +213,7 @@
                                                         <span class="muted">{{ formatRelativeTime(tx.receive_time) }}</span>
                                                     </div>
                                                 </td>
-                                                <td>{{ formatCoins(tx.amount_out, false) }}</td>
+                                                <td><span :title="isConfidentialTx(tx) ? 'Confidential transaction' : ''">{{ txOutputsAmountText(tx) }}</span></td>
                                                 <td>{{ formatCoins(tx.fee, false) }}</td>
                                                 <td><span class="nowrap-value">{{ formatBytes(tx.size) }}</span></td>
                                                 <td>
