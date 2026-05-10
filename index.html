@@ -677,6 +677,7 @@
                                             <span>Recipient address</span>
                                             <input v-model.trim="txVerifier.address" type="text" placeholder="Karbo address">
                                         </label>
+                                        <p v-if="txVerifier.keyType === 'view_key'" class="fine-print">Private view keys are sent to the selected node for verification. Use a node you trust.</p>
                                         <div class="panel-actions">
                                             <button type="submit" class="button button--primary" :disabled="txVerifier.loading">
                                                 <i class="fas fa-key"></i>
@@ -1361,6 +1362,7 @@
                                     <span>Recipient address</span>
                                     <input v-model.trim="paymentCheckTool.address" type="text" placeholder="Karbo address">
                                 </label>
+                                <p v-if="paymentCheckTool.keyType === 'view_key'" class="fine-print">Private view keys are sent to the selected node for verification. Use a node you trust.</p>
                                 <div class="panel-actions">
                                     <button type="submit" class="button button--primary" :disabled="paymentCheckTool.loading">
                                         <i class="fas fa-key"></i>
