@@ -690,7 +690,7 @@
 
                                     <div v-if="txVerifier.error" class="notice notice--error">{{ txVerifier.error }}</div>
                                     <div v-if="txVerifier.result" class="notice notice--success">
-                                        <strong>{{ txVerifier.result.signatureValid === false ? 'Invalid signature' : 'Received amount: ' + formatCoins(txVerifier.result.amount, 12) }}</strong>
+                                        <strong>{{ txVerifier.result.signatureValid === false ? 'Invalid signature' : (txVerifier.result.amountUnavailable ? 'Matching outputs found, amount unavailable from node' : 'Received amount: ' + formatCoins(txVerifier.result.amount, 12)) }}</strong>
                                         <p v-if="txVerifier.result.signatureValid !== false">Matching outputs are highlighted in the Outputs tab.</p>
                                     </div>
                                 </article>
@@ -1373,7 +1373,7 @@
                             </form>
                             <div v-if="paymentCheckTool.error" class="notice notice--error">{{ paymentCheckTool.error }}</div>
                             <div v-if="paymentCheckTool.result" class="notice" :class="paymentCheckTool.result.signatureValid === false ? 'notice--error' : 'notice--success'">
-                                <strong>{{ paymentCheckTool.result.signatureValid === false ? 'Invalid signature' : 'Received amount: ' + formatCoins(paymentCheckTool.result.amount, 12) }}</strong>
+                                <strong>{{ paymentCheckTool.result.signatureValid === false ? 'Invalid signature' : (paymentCheckTool.result.amountUnavailable ? 'Matching outputs found, amount unavailable from node' : 'Received amount: ' + formatCoins(paymentCheckTool.result.amount, 12)) }}</strong>
                                 <p v-if="paymentCheckTool.result.signatureValid !== false">{{ formatNumber(paymentCheckTool.result.outputs.length) }} matching outputs found.</p>
                             </div>
                         </article>

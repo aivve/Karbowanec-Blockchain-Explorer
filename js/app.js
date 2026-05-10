@@ -225,6 +225,100 @@
         return Number.isFinite(numeric) ? BigInt(Math.trunc(numeric)) : null;
     }
 
+    function firstPresentAtomicAmount(values) {
+        for (var index = 0; index < values.length; index += 1) {
+            var amount = toAtomicBigInt(values[index]);
+            if (amount !== null) return amount;
+        }
+        return null;
+    }
+
+    function firstPositiveAtomicAmount(values) {
+        for (var index = 0; index < values.length; index += 1) {
+            var amount = toAtomicBigInt(values[index]);
+            if (amount !== null && amount > 0n) return amount;
+        }
+        return null;
+    }
+
+    function paymentOutputAmount(output) {
+        if (!output || typeof output !== "object") return null;
+        var fields = [
+            output.received_amount,
+            output.receivedAmount,
+            output.decoded_amount,
+            output.decodedAmount,
+            output.amount,
+            output.output && output.output.received_amount,
+            output.output && output.output.receivedAmount,
+            output.output && output.output.decoded_amount,
+            output.output && output.output.decodedAmount,
+            output.output && output.output.amount
+        ];
+        return firstPositiveAtomicAmount(fields) || firstPresentAtomicAmount(fields);
+    }
+
+    function paymentOutputsAmount(outputs) {
+        if (!Array.isArray(outputs)) return null;
+        var total = 0n;
+        var found = false;
+        outputs.forEach(function (output) {
+            var amount = paymentOutputAmount(output);
+            if (amount !== null) {
+                total += amount;
+                found = true;
+            }
+        });
+        return found ? total : null;
+    }
+
+    function paymentVerificationAmount(result) {
+        if (!result || typeof result !== "object") return 0n;
+        var directFields = [
+            result.received_amount,
+            result.receivedAmount,
+            result.total_received_amount,
+            result.totalReceivedAmount,
+            result.amount
+        ];
+        var positiveDirect = firstPositiveAtomicAmount(directFields);
+        if (positiveDirect !== null) return positiveDirect;
+
+        var outputsAmount = paymentOutputsAmount(result.outputs);
+        if (outputsAmount !== null && outputsAmount > 0n) return outputsAmount;
+
+        var direct = firstPresentAtomicAmount(directFields);
+        if (direct !== null) return direct;
+        return outputsAmount !== null ? outputsAmount : 0n;
+    }
+
+    function paymentOutputTargetData(output) {
+        if (!output || typeof output !== "object") return null;
+        if (output.target && output.target.data) return output.target.data;
+        if (output.output && output.output.target && output.output.target.data) return output.output.target.data;
+        if (output.output && output.output.output && output.output.output.target && output.output.output.target.data) {
+            return output.output.output.target.data;
+        }
+        return null;
+    }
+
+    function paymentOutputTargetKey(output) {
+        var data = paymentOutputTargetData(output);
+        return data ? (data.target_key || data.targetKey || data.key || "") : "";
+    }
+
+    function normalizePaymentVerificationResult(result) {
+        var outputs = result && Array.isArray(result.outputs) ? result.outputs : [];
+        var amount = paymentVerificationAmount(result);
+        var signatureValid = !result || result.signature_valid !== false;
+        return {
+            signatureValid: signatureValid,
+            amount: amount,
+            amountUnavailable: signatureValid && outputs.length > 0 && amount === 0n,
+            outputs: outputs
+        };
+    }
+
     function renderAtomicCoins(value, precision, includeSymbol, trimTrailingZeros) {
         var atomics = toAtomicBigInt(value);
         if (atomics === null) return "--";
@@ -2212,17 +2306,7 @@
                     var verifyResult = responses[0];
                     var txResult = responses[1];
                     this.paymentCheckTool.txInfo = txResult && txResult.transaction ? txResult.transaction : null;
-                    this.paymentCheckTool.result = this.paymentCheckTool.keyType === "tx_proof"
-                        ? {
-                            signatureValid: verifyResult.signature_valid !== false,
-                            amount: verifyResult.received_amount || 0,
-                            outputs: verifyResult.outputs || []
-                        }
-                        : {
-                            signatureValid: true,
-                            amount: verifyResult.amount || 0,
-                            outputs: verifyResult.outputs || []
-                        };
+                    this.paymentCheckTool.result = normalizePaymentVerificationResult(verifyResult);
                 } catch (error) {
                     this.paymentCheckTool.error = readableError(error, "Could not verify this payment.");
                 } finally {
@@ -2412,19 +2496,7 @@
                         };
                     }
                     var result = await rpcCall(this.api, method, params);
-                    if (this.txVerifier.keyType === "tx_proof") {
-                        this.txVerifier.result = {
-                            signatureValid: result.signature_valid !== false,
-                            amount: result.received_amount || 0,
-                            outputs: result.outputs || []
-                        };
-                    } else {
-                        this.txVerifier.result = {
-                            signatureValid: true,
-                            amount: result.amount || 0,
-                            outputs: result.outputs || []
-                        };
-                    }
+                    this.txVerifier.result = normalizePaymentVerificationResult(result);
                     this.activeTxTab = "outputs";
                 } catch (error) {
                     this.txVerifier.error = readableError(error, "Transaction verification failed.");
@@ -2444,11 +2516,9 @@
                 if (this.route.query.highlight !== undefined && String(this.route.query.highlight) === String(index)) return true;
                 if (!this.txVerifier.result || !Array.isArray(this.txVerifier.result.outputs)) return false;
                 return this.txVerifier.result.outputs.some(function (candidate) {
-                    if (!candidate || !candidate.target || !candidate.target.data) return false;
-                    if (!output || !output.output || !output.output.target || !output.output.target.data) return false;
-                    var candidateKey = candidate.target.data.target_key || candidate.target.data.targetKey || candidate.target.data.key;
-                    var outputKey = output.output.target.data.target_key || output.output.target.data.targetKey || output.output.target.data.key;
-                    return candidateKey === outputKey;
+                    var candidateKey = paymentOutputTargetKey(candidate);
+                    var outputKey = paymentOutputTargetKey(output);
+                    return Boolean(candidateKey && outputKey && candidateKey === outputKey);
                 });
             },
             isConfidentialTx: function (transaction) {
