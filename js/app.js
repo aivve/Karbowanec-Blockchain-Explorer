@@ -319,6 +319,102 @@
         };
     }
 
+    function transactionOutputs(transaction) {
+        if (!transaction) return [];
+        if (Array.isArray(transaction.outputs)) return transaction.outputs;
+        if (Array.isArray(transaction.vout)) {
+            return transaction.vout.map(function (output) {
+                return { output: output };
+            });
+        }
+        return [];
+    }
+
+    function transactionPublicKey(transaction) {
+        if (!transaction) return "";
+        if (transaction.extra && typeof transaction.extra === "object") {
+            if (transaction.extra.publicKey) return transaction.extra.publicKey;
+            if (transaction.extra.public_key) return transaction.extra.public_key;
+            if (transaction.extra.tx_public_key) return transaction.extra.tx_public_key;
+        }
+        return transaction.transactionPublicKey || transaction.publicKey || transaction.txPublicKey || transaction.tx_public_key || "";
+    }
+
+    function clonePaymentOutputWithAmount(output, amount) {
+        var amountString = amount.toString();
+        var cloned = Object.assign({}, output, {
+            received_amount: amountString,
+            receivedAmount: amountString,
+            decoded_amount: amountString,
+            decodedAmount: amountString
+        });
+        if (output && output.output && typeof output.output === "object") {
+            cloned.output = Object.assign({}, output.output, {
+                received_amount: amountString,
+                receivedAmount: amountString,
+                decoded_amount: amountString,
+                decodedAmount: amountString
+            });
+        }
+        return cloned;
+    }
+
+    async function loadClientPaymentCrypto() {
+        if (!window.cnUtil || !window.cnUtil.decode_ct_amount || !window.cnUtil.derive_public_key) {
+            await loadScriptOnce("/js/crypto_utils.js");
+        }
+        if (!window.cnUtil || !window.cnUtil.decode_ct_amount || !window.cnUtil.derive_public_key) {
+            throw new Error("Local payment decoder is unavailable.");
+        }
+        return window.cnUtil;
+    }
+
+    async function verifyPaymentClientSide(transaction, keyType, secret, address) {
+        if (keyType !== "tx_key" && keyType !== "view_key") return null;
+        var cnUtil = await loadClientPaymentCrypto();
+        var decodedAddress = cnUtil.decode_address(address);
+        var derivation = "";
+        var normalizedSecret = String(secret || "").trim();
+        if (keyType === "view_key") {
+            if (normalizedSecret.length === 256) normalizedSecret = normalizedSecret.slice(-64);
+            var txPublicKey = transactionPublicKey(transaction);
+            if (!txPublicKey) throw new Error("Transaction public key is unavailable.");
+            derivation = cnUtil.generate_key_derivation(txPublicKey, normalizedSecret);
+        } else {
+            derivation = cnUtil.generate_key_derivation(decodedAddress.view, normalizedSecret);
+        }
+
+        var outputs = transactionOutputs(transaction);
+        var matchingOutputs = [];
+        var total = 0n;
+        outputs.forEach(function (output, index) {
+            var targetKey = paymentOutputTargetKey(output);
+            if (!targetKey) return;
+            var derivedKey = cnUtil.derive_public_key(derivation, index, decodedAddress.spend);
+            if (derivedKey !== targetKey) return;
+            var data = paymentOutputTargetData(output) || {};
+            var maskedAmount = data.masked_amount || data.maskedAmount || "";
+            var commitment = data.commitment || data.commit || "";
+            var amount = null;
+            if (maskedAmount || commitment) {
+                if (!maskedAmount || !commitment) throw new Error("CT output is missing masked amount or commitment.");
+                amount = toAtomicBigInt(cnUtil.decode_ct_amount(maskedAmount, commitment, derivation, index).amount);
+            } else {
+                amount = paymentOutputAmount(output);
+            }
+            if (amount === null) amount = 0n;
+            total += amount;
+            matchingOutputs.push(clonePaymentOutputWithAmount(output, amount));
+        });
+
+        return {
+            signatureValid: true,
+            amount: total,
+            amountUnavailable: false,
+            outputs: matchingOutputs
+        };
+    }
+
     function renderAtomicCoins(value, precision, includeSymbol, trimTrailingZeros) {
         var atomics = toAtomicBigInt(value);
         if (atomics === null) return "--";
@@ -2277,20 +2373,27 @@
                     var params = {};
                     var secret = this.paymentCheckTool.secret.trim();
                     if (this.paymentCheckTool.keyType === "tx_key") {
-                        resultMethod = "checktransactionkey";
-                        params = {
-                            transaction_id: txHash,
-                            transaction_key: secret,
-                            address: this.paymentCheckTool.address.trim()
-                        };
+                        var txKeyResult = await rpcCall(this.api, "gettransaction", { hash: txHash });
+                        this.paymentCheckTool.txInfo = txKeyResult && txKeyResult.transaction ? txKeyResult.transaction : null;
+                        if (!this.paymentCheckTool.txInfo) throw new Error("Transaction was not found.");
+                        this.paymentCheckTool.result = await verifyPaymentClientSide(
+                            this.paymentCheckTool.txInfo,
+                            this.paymentCheckTool.keyType,
+                            secret,
+                            this.paymentCheckTool.address.trim()
+                        );
+                        return;
                     } else if (this.paymentCheckTool.keyType === "view_key") {
-                        if (secret.length === 256) secret = secret.slice(-64);
-                        resultMethod = "checktransactionbyviewkey";
-                        params = {
-                            transaction_id: txHash,
-                            view_key: secret,
-                            address: this.paymentCheckTool.address.trim()
-                        };
+                        var viewKeyResult = await rpcCall(this.api, "gettransaction", { hash: txHash });
+                        this.paymentCheckTool.txInfo = viewKeyResult && viewKeyResult.transaction ? viewKeyResult.transaction : null;
+                        if (!this.paymentCheckTool.txInfo) throw new Error("Transaction was not found.");
+                        this.paymentCheckTool.result = await verifyPaymentClientSide(
+                            this.paymentCheckTool.txInfo,
+                            this.paymentCheckTool.keyType,
+                            secret,
+                            this.paymentCheckTool.address.trim()
+                        );
+                        return;
                     } else {
                         resultMethod = "checktransactionproof";
                         params = {
@@ -2473,20 +2576,23 @@
                     var params = {};
                     var secret = this.txVerifier.secret.trim();
                     if (this.txVerifier.keyType === "tx_key") {
-                        method = "checktransactionkey";
-                        params = {
-                            transaction_id: this.txView.tx.hash,
-                            transaction_key: secret,
-                            address: this.txVerifier.address.trim()
-                        };
+                        this.txVerifier.result = await verifyPaymentClientSide(
+                            this.txView.tx,
+                            this.txVerifier.keyType,
+                            secret,
+                            this.txVerifier.address.trim()
+                        );
+                        this.activeTxTab = "outputs";
+                        return;
                     } else if (this.txVerifier.keyType === "view_key") {
-                        if (secret.length === 256) secret = secret.slice(-64);
-                        method = "checktransactionbyviewkey";
-                        params = {
-                            transaction_id: this.txView.tx.hash,
-                            view_key: secret,
-                            address: this.txVerifier.address.trim()
-                        };
+                        this.txVerifier.result = await verifyPaymentClientSide(
+                            this.txView.tx,
+                            this.txVerifier.keyType,
+                            secret,
+                            this.txVerifier.address.trim()
+                        );
+                        this.activeTxTab = "outputs";
+                        return;
                     } else {
                         method = "checktransactionproof";
                         params = {

@@ -1662,7 +1662,7 @@ var cnUtil = (function(initConfig) {
     };
 
     this.valid_hex = function(hex) {
-        return /[0-9a-fA-F]+/.test(hex);
+        return /^[0-9a-fA-F]+$/.test(hex);
     };
 
     function hextobin(hex) {
@@ -1884,17 +1884,155 @@ var cnUtil = (function(initConfig) {
         var point_m = Module._malloc(STRUCT_SIZES.GE_P2);
         var point2_m = Module._malloc(STRUCT_SIZES.GE_P1P1);
         var res_m = Module._malloc(STRUCT_SIZES.GE_P3);
+        var res2_m = Module._malloc(KEY_SIZE);
         var hash = hextobin(this.cn_fast_hash(key, KEY_SIZE));
         Module.HEAPU8.set(hash, h_m);
         Module.ccall("ge_fromfe_frombytes_vartime", "void", ["number", "number"], [point_m, h_m]);
         Module.ccall("ge_mul8", "void", ["number", "number"], [point2_m, point_m]);
         Module.ccall("ge_p1p1_to_p3", "void", ["number", "number"], [res_m, point2_m]);
-        var res = Module.HEAPU8.subarray(res_m, res_m + STRUCT_SIZES.GE_P3);
+        Module.ccall("ge_p3_tobytes", "void", ["number", "number"], [res2_m, res_m]);
+        var res = Module.HEAPU8.subarray(res2_m, res2_m + KEY_SIZE);
         Module._free(h_m);
         Module._free(point_m);
         Module._free(point2_m);
         Module._free(res_m);
+        Module._free(res2_m);
         return bintohex(res);
+    };
+
+    this.hash_to_ec_data = function(data) {
+        if (data.length % 2 !== 0 || !this.valid_hex(data)) {
+            throw "Invalid input";
+        }
+        var h_m = Module._malloc(HASH_SIZE);
+        var point_m = Module._malloc(STRUCT_SIZES.GE_P2);
+        var point2_m = Module._malloc(STRUCT_SIZES.GE_P1P1);
+        var res_m = Module._malloc(STRUCT_SIZES.GE_P3);
+        var res2_m = Module._malloc(KEY_SIZE);
+        var hash = hextobin(this.cn_fast_hash(data));
+        Module.HEAPU8.set(hash, h_m);
+        Module.ccall("ge_fromfe_frombytes_vartime", "void", ["number", "number"], [point_m, h_m]);
+        Module.ccall("ge_mul8", "void", ["number", "number"], [point2_m, point_m]);
+        Module.ccall("ge_p1p1_to_p3", "void", ["number", "number"], [res_m, point2_m]);
+        Module.ccall("ge_p3_tobytes", "void", ["number", "number"], [res2_m, res_m]);
+        var res = Module.HEAPU8.subarray(res2_m, res2_m + KEY_SIZE);
+        Module._free(h_m);
+        Module._free(point_m);
+        Module._free(point2_m);
+        Module._free(res_m);
+        Module._free(res2_m);
+        return bintohex(res);
+    };
+
+    this.ge_double_scalarmult_base_vartime = function(c, P, r) {
+        if (c.length !== 64 || P.length !== 64 || r.length !== 64 || !this.valid_hex(c) || !this.valid_hex(P) || !this.valid_hex(r)) {
+            throw "Invalid input length";
+        }
+        var c_m = Module._malloc(STRUCT_SIZES.EC_SCALAR);
+        var P_m = Module._malloc(STRUCT_SIZES.EC_POINT);
+        var r_m = Module._malloc(STRUCT_SIZES.EC_SCALAR);
+        var P3_m = Module._malloc(STRUCT_SIZES.GE_P3);
+        var res_m = Module._malloc(STRUCT_SIZES.GE_P2);
+        var out_m = Module._malloc(STRUCT_SIZES.EC_POINT);
+        Module.HEAPU8.set(hextobin(c), c_m);
+        Module.HEAPU8.set(hextobin(P), P_m);
+        Module.HEAPU8.set(hextobin(r), r_m);
+        if (Module.ccall("ge_frombytes_vartime", "bool", ["number", "number"], [P3_m, P_m]) !== 0) {
+            throw "ge_frombytes_vartime returned non-zero error code";
+        }
+        Module.ccall("ge_double_scalarmult_base_vartime", "void", ["number", "number", "number", "number"], [res_m, c_m, P3_m, r_m]);
+        Module.ccall("ge_tobytes", "void", ["number", "number"], [out_m, res_m]);
+        var res = Module.HEAPU8.subarray(out_m, out_m + STRUCT_SIZES.EC_POINT);
+        Module._free(c_m);
+        Module._free(P_m);
+        Module._free(r_m);
+        Module._free(P3_m);
+        Module._free(res_m);
+        Module._free(out_m);
+        return bintohex(res);
+    };
+
+    this.u64_to_le_hex = function(integer) {
+        var value = BigInt(String(integer));
+        var max = (1n << 64n) - 1n;
+        if (value < 0n || value > max) {
+            throw "Integer out of uint64 range";
+        }
+        var out = "";
+        for (var i = 0; i < 8; i++) {
+            out += (Number(value & 0xffn) + 0x100).toString(16).slice(1);
+            value >>= 8n;
+        }
+        return out;
+    };
+
+    this.le_hex_to_u64 = function(hex) {
+        if (hex.length !== 16 || !this.valid_hex(hex)) {
+            throw "Invalid uint64 hex";
+        }
+        var value = 0n;
+        for (var i = 7; i >= 0; i--) {
+            value = (value << 8n) + BigInt(parseInt(hex.slice(i * 2, i * 2 + 2), 16));
+        }
+        return value.toString();
+    };
+
+    this.scalar_from_u64 = function(integer) {
+        return this.u64_to_le_hex(integer) + "000000000000000000000000000000000000000000000000";
+    };
+
+    this.hex_xor = function(hex1, hex2) {
+        if (hex1.length !== hex2.length || !this.valid_hex(hex1) || !this.valid_hex(hex2)) {
+            throw "Invalid xor input";
+        }
+        var out = "";
+        for (var i = 0; i < hex1.length; i += 2) {
+            out += (parseInt(hex1.slice(i, i + 2), 16) ^ parseInt(hex2.slice(i, i + 2), 16)).toString(16).padStart(2, "0");
+        }
+        return out;
+    };
+
+    var pedersenHCache = null;
+    this.pedersenH = function() {
+        if (pedersenHCache === null) {
+            pedersenHCache = this.hash_to_ec_data("434e2d616d6f756e742d67656e657261746f72");
+        }
+        return pedersenHCache;
+    };
+
+    this.commit = function(amount, mask) {
+        return this.ge_double_scalarmult_base_vartime(amount, this.pedersenH(), mask);
+    };
+
+    this.mask_amount = function(sharedSecret, amount) {
+        if (sharedSecret.length !== 64 || !this.valid_hex(sharedSecret)) {
+            throw "Invalid shared secret";
+        }
+        var amountLe = this.u64_to_le_hex(amount);
+        var mask = this.hash_to_scalar(sharedSecret + "00").slice(0, 16);
+        return this.hex_xor(amountLe, mask);
+    };
+
+    this.unmask_amount = function(sharedSecret, maskedAmount) {
+        if (sharedSecret.length !== 64 || maskedAmount.length !== 16 || !this.valid_hex(sharedSecret) || !this.valid_hex(maskedAmount)) {
+            throw "Invalid CT amount mask";
+        }
+        var mask = this.hash_to_scalar(sharedSecret + "00").slice(0, 16);
+        return this.le_hex_to_u64(this.hex_xor(maskedAmount, mask));
+    };
+
+    this.decode_ct_amount = function(maskedAmount, commitment, derivation, outIndex) {
+        var amount = this.unmask_amount(derivation, maskedAmount);
+        var blinding = this.derivation_to_scalar(derivation, outIndex);
+        var expectedCommitment = this.commit(this.scalar_from_u64(amount), blinding);
+        if (commitment && expectedCommitment !== commitment) {
+            throw "CT output commitment mismatch";
+        }
+        return {
+            amount: amount,
+            blinding: blinding,
+            commitment: expectedCommitment
+        };
     };
 
     this.decode_address = function(address) {
@@ -1975,7 +2113,7 @@ var cnUtil = (function(initConfig) {
             throw "Invalid derivation length!";
         }
         buf += derivation;
-        var enc = encode_varint(output_index);
+        var enc = this.encode_varint(output_index);
         if (enc.length > 10 * 2) {
             throw "output_index didn't fit in 64-bit varint";
         }
