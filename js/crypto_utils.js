@@ -2126,25 +2126,32 @@ var cnUtil = (function(initConfig) {
         return this.ge_double_scalarmult_base_vartime(amount, this.pedersenH(), mask);
     };
 
-    this.mask_amount = function(sharedSecret, amount) {
+    function amount_mask(sharedSecret, outputIndex) {
         if (sharedSecret.length !== 64 || !this.valid_hex(sharedSecret)) {
             throw "Invalid shared secret";
         }
+        if (outputIndex < 0 || Math.floor(outputIndex) !== outputIndex) {
+            throw "Invalid CT output index";
+        }
+        return this.hash_to_scalar(sharedSecret + this.encode_varint(outputIndex) + this.text_to_hex("amount-mask-v1")).slice(0, 16);
+    }
+
+    this.mask_amount = function(sharedSecret, outputIndex, amount) {
         var amountLe = this.u64_to_le_hex(amount);
-        var mask = this.hash_to_scalar(sharedSecret + "00").slice(0, 16);
+        var mask = amount_mask.call(this, sharedSecret, outputIndex);
         return this.hex_xor(amountLe, mask);
     };
 
-    this.unmask_amount = function(sharedSecret, maskedAmount) {
-        if (sharedSecret.length !== 64 || maskedAmount.length !== 16 || !this.valid_hex(sharedSecret) || !this.valid_hex(maskedAmount)) {
+    this.unmask_amount = function(sharedSecret, outputIndex, maskedAmount) {
+        if (maskedAmount.length !== 16 || !this.valid_hex(maskedAmount)) {
             throw "Invalid CT amount mask";
         }
-        var mask = this.hash_to_scalar(sharedSecret + "00").slice(0, 16);
+        var mask = amount_mask.call(this, sharedSecret, outputIndex);
         return this.le_hex_to_u64(this.hex_xor(maskedAmount, mask));
     };
 
     this.decode_ct_amount = function(maskedAmount, commitment, derivation, outIndex) {
-        var amount = this.unmask_amount(derivation, maskedAmount);
+        var amount = this.unmask_amount(derivation, outIndex, maskedAmount);
         var blinding = this.derivation_to_scalar(derivation, outIndex);
         var expectedCommitment = this.commit(this.scalar_from_u64(amount), blinding);
         if (commitment && expectedCommitment !== commitment) {
