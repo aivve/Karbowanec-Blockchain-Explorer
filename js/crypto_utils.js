@@ -1636,6 +1636,8 @@ var cnUtil = (function(initConfig) {
     var HASH_SIZE = 32;
     var ADDRESS_CHECKSUM_SIZE = 4;
     var CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX = config.addressPrefix;
+    var CRYPTONOTE_TX_PROOF_BASE58_PREFIX = config.txProofPrefix || 3576968;
+    var CRYPTONOTE_KEYS_SIGNATURE_BASE58_PREFIX = config.keysSignaturePrefix || 176103705;
     var UINT64_MAX = new JSBigInt(2).pow(64);
     var CURRENT_TX_VERSION = 1;
     var TX_EXTRA_NONCE_MAX_COUNT = 255;
@@ -1709,6 +1711,43 @@ var cnUtil = (function(initConfig) {
         return bintohex(output);
     };
 
+    this.sc_check = function(hex) {
+        if (typeof hex !== "string" || hex.length !== 64 || !this.valid_hex(hex)) {
+            return false;
+        }
+        var input = hextobin(hex);
+        var mem = Module._malloc(32);
+        Module.HEAPU8.set(input, mem);
+        var result = Module.ccall("sc_check", "number", ["number"], [mem]);
+        Module._free(mem);
+        return result === 0;
+    };
+
+    this.sc_sub = function(a, b) {
+        if (a.length !== 64 || b.length !== 64) {
+            throw "Invalid input length";
+        }
+        var a_mem = Module._malloc(32);
+        var b_mem = Module._malloc(32);
+        var out_mem = Module._malloc(32);
+        Module.HEAPU8.set(hextobin(a), a_mem);
+        Module.HEAPU8.set(hextobin(b), b_mem);
+        Module.ccall("sc_sub", "void", ["number", "number", "number"], [out_mem, a_mem, b_mem]);
+        var output = Module.HEAPU8.subarray(out_mem, out_mem + 32);
+        Module._free(a_mem);
+        Module._free(b_mem);
+        Module._free(out_mem);
+        return bintohex(output);
+    };
+
+    this.scalar_one = function() {
+        return "01" + "00".repeat(31);
+    };
+
+    this.scalar_is_zero = function(hex) {
+        return typeof hex === "string" && /^0+$/.test(hex);
+    };
+
     this.ge_scalarmult_base = function(hex) {
         var input = hextobin(hex);
         if (input.length !== 32) {
@@ -1721,6 +1760,72 @@ var cnUtil = (function(initConfig) {
         var output = Module.HEAPU8.subarray(ge_p3, ge_p3 + STRUCT_SIZES.GE_P3);
         Module._free(input_mem);
         Module._free(ge_p3);
+        return bintohex(output);
+    };
+
+    this.ge_scalarmult_base_point = function(hex) {
+        var point = this.ge_scalarmult_base(hex);
+        return this.ge_p3_tobytes(point);
+    };
+
+    this.ge_scalarmult = function(pub, scalar) {
+        if (pub.length !== 64 || scalar.length !== 64) {
+            throw "Invalid input length";
+        }
+        var pub_m = Module._malloc(KEY_SIZE);
+        var scalar_m = Module._malloc(KEY_SIZE);
+        var ge_p3_m = Module._malloc(STRUCT_SIZES.GE_P3);
+        var ge_p2_m = Module._malloc(STRUCT_SIZES.GE_P2);
+        var out_m = Module._malloc(KEY_SIZE);
+        Module.HEAPU8.set(hextobin(pub), pub_m);
+        Module.HEAPU8.set(hextobin(scalar), scalar_m);
+        if (Module.ccall("ge_frombytes_vartime", "bool", ["number", "number"], [ge_p3_m, pub_m]) !== 0) {
+            throw "ge_frombytes_vartime returned non-zero error code";
+        }
+        Module.ccall("ge_scalarmult", "void", ["number", "number", "number"], [ge_p2_m, scalar_m, ge_p3_m]);
+        Module.ccall("ge_tobytes", "void", ["number", "number"], [out_m, ge_p2_m]);
+        var output = Module.HEAPU8.subarray(out_m, out_m + KEY_SIZE);
+        Module._free(pub_m);
+        Module._free(scalar_m);
+        Module._free(ge_p3_m);
+        Module._free(ge_p2_m);
+        Module._free(out_m);
+        return bintohex(output);
+    };
+
+    this.ge_add = function(a, b) {
+        if (a.length !== 64 || b.length !== 64) {
+            throw "Invalid input length";
+        }
+        var a_m = Module._malloc(KEY_SIZE);
+        var b_m = Module._malloc(KEY_SIZE);
+        var a_p3_m = Module._malloc(STRUCT_SIZES.GE_P3);
+        var b_p3_m = Module._malloc(STRUCT_SIZES.GE_P3);
+        var b_cached_m = Module._malloc(STRUCT_SIZES.GE_CACHED);
+        var ge_p1p1_m = Module._malloc(STRUCT_SIZES.GE_P1P1);
+        var ge_p2_m = Module._malloc(STRUCT_SIZES.GE_P2);
+        var out_m = Module._malloc(KEY_SIZE);
+        Module.HEAPU8.set(hextobin(a), a_m);
+        Module.HEAPU8.set(hextobin(b), b_m);
+        if (Module.ccall("ge_frombytes_vartime", "bool", ["number", "number"], [a_p3_m, a_m]) !== 0) {
+            throw "ge_frombytes_vartime returned non-zero error code";
+        }
+        if (Module.ccall("ge_frombytes_vartime", "bool", ["number", "number"], [b_p3_m, b_m]) !== 0) {
+            throw "ge_frombytes_vartime returned non-zero error code";
+        }
+        Module.ccall("ge_p3_to_cached", "void", ["number", "number"], [b_cached_m, b_p3_m]);
+        Module.ccall("ge_add", "void", ["number", "number", "number"], [ge_p1p1_m, a_p3_m, b_cached_m]);
+        Module.ccall("ge_p1p1_to_p2", "void", ["number", "number"], [ge_p2_m, ge_p1p1_m]);
+        Module.ccall("ge_tobytes", "void", ["number", "number"], [out_m, ge_p2_m]);
+        var output = Module.HEAPU8.subarray(out_m, out_m + KEY_SIZE);
+        Module._free(a_m);
+        Module._free(b_m);
+        Module._free(a_p3_m);
+        Module._free(b_p3_m);
+        Module._free(b_cached_m);
+        Module._free(ge_p1p1_m);
+        Module._free(ge_p2_m);
+        Module._free(out_m);
         return bintohex(output);
     };
 
@@ -1748,6 +1853,23 @@ var cnUtil = (function(initConfig) {
         }
         var state = this.keccak(input, inlen, HASH_STATE_BYTES);
         return state.substr(0, HASH_SIZE * 2);
+    };
+
+    this.text_to_hex = function(text) {
+        text = String(text === undefined || text === null ? "" : text);
+        if (typeof TextEncoder !== "undefined") {
+            return bintohex(new TextEncoder().encode(text));
+        }
+        var utf8 = unescape(encodeURIComponent(text));
+        var bytes = new Uint8Array(utf8.length);
+        for (var i = 0; i < utf8.length; i++) {
+            bytes[i] = utf8.charCodeAt(i);
+        }
+        return bintohex(bytes);
+    };
+
+    this.cn_fast_hash_text = function(text) {
+        return this.cn_fast_hash(this.text_to_hex(text));
     };
 
     this.encode_varint = function(i) {
@@ -2035,18 +2157,22 @@ var cnUtil = (function(initConfig) {
         };
     };
 
-    this.decode_address = function(address) {
-        var dec = cnBase58.decode(address);
-        var expectedPrefix = this.encode_varint(CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX);
-        var prefix = dec.slice(0, expectedPrefix.length);
-        if (prefix !== expectedPrefix) {
-            throw "Invalid address prefix";
+    this.decode_prefixed_data = function(encoded, expectedPrefix) {
+        var dec = cnBase58.decode(encoded);
+        var prefix = this.encode_varint(expectedPrefix);
+        if (dec.slice(0, prefix.length) !== prefix) {
+            throw "Invalid prefix";
         }
-        dec = dec.slice(expectedPrefix.length);
+        return dec.slice(prefix.length);
+    };
+
+    this.decode_address = function(address) {
+        var expectedPrefix = this.encode_varint(CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX);
+        var dec = this.decode_prefixed_data(address, CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX);
         var spend = dec.slice(0, 64);
         var view = dec.slice(64, 128);
         var checksum = dec.slice(128, 128 + (ADDRESS_CHECKSUM_SIZE * 2));
-        var expectedChecksum = this.cn_fast_hash(prefix + spend + view).slice(0, ADDRESS_CHECKSUM_SIZE * 2);
+        var expectedChecksum = this.cn_fast_hash(expectedPrefix + spend + view).slice(0, ADDRESS_CHECKSUM_SIZE * 2);
         if (checksum !== expectedChecksum) {
             throw "Invalid checksum";
         }
@@ -2105,6 +2231,86 @@ var cnUtil = (function(initConfig) {
         var hash = this.cn_fast_hash(buf);
         var scalar = this.sc_reduce32(hash);
         return scalar;
+    };
+
+    this.decode_key_signature = function(signature) {
+        var payload = this.decode_prefixed_data(signature, CRYPTONOTE_KEYS_SIGNATURE_BASE58_PREFIX);
+        if (payload.length !== 128) {
+            throw "Invalid signature length";
+        }
+        return payload;
+    };
+
+    this.decode_tx_proof = function(proof) {
+        var payload = this.decode_prefixed_data(proof, CRYPTONOTE_TX_PROOF_BASE58_PREFIX);
+        if (payload.length !== 192) {
+            throw "Invalid transaction proof length";
+        }
+        return {
+            derivation: payload.slice(0, 64),
+            signature: payload.slice(64, 192)
+        };
+    };
+
+    this.check_signature = function(prefixHash, pub, signature) {
+        try {
+            if (prefixHash.length !== 64 || pub.length !== 64 || signature.length !== 128) {
+                return false;
+            }
+            if (!this.valid_hex(prefixHash) || !this.valid_hex(pub) || !this.valid_hex(signature)) {
+                return false;
+            }
+            var c = signature.slice(0, 64);
+            var r = signature.slice(64, 128);
+            if (!this.sc_check(c) || !this.sc_check(r) || this.scalar_is_zero(c)) {
+                return false;
+            }
+            var comm = this.ge_double_scalarmult_base_vartime(c, pub, r);
+            if (comm === "01" + "00".repeat(31)) {
+                return false;
+            }
+            var expected = this.hash_to_scalar(prefixHash + pub + comm);
+            return this.scalar_is_zero(this.sc_sub(expected, c));
+        } catch (e) {
+            return false;
+        }
+    };
+
+    this.check_message_signature = function(message, address, signature) {
+        try {
+            var decodedAddress = this.decode_address(address);
+            var sig = this.decode_key_signature(signature);
+            var hash = this.cn_fast_hash_text(message);
+            return this.check_signature(hash, decodedAddress.spend, sig);
+        } catch (e) {
+            return false;
+        }
+    };
+
+    this.check_tx_proof = function(prefixHash, txPublicKey, viewPublicKey, derivationPublicKey, signature) {
+        try {
+            if (prefixHash.length !== 64 || txPublicKey.length !== 64 || viewPublicKey.length !== 64 || derivationPublicKey.length !== 64 || signature.length !== 128) {
+                return false;
+            }
+            if (!this.valid_hex(prefixHash) || !this.valid_hex(txPublicKey) || !this.valid_hex(viewPublicKey) || !this.valid_hex(derivationPublicKey) || !this.valid_hex(signature)) {
+                return false;
+            }
+            var c = signature.slice(0, 64);
+            var r = signature.slice(64, 128);
+            if (!this.sc_check(c) || !this.sc_check(r)) {
+                return false;
+            }
+            var cR = this.ge_scalarmult(txPublicKey, c);
+            var rG = this.ge_scalarmult_base_point(r);
+            var cD = this.ge_scalarmult(derivationPublicKey, c);
+            var rA = this.ge_scalarmult(viewPublicKey, r);
+            var X = this.ge_add(cR, rG);
+            var Y = this.ge_add(cD, rA);
+            var expected = this.hash_to_scalar(prefixHash + derivationPublicKey + X + Y);
+            return this.scalar_is_zero(this.sc_sub(expected, c));
+        } catch (e) {
+            return false;
+        }
     };
 
     this.derivation_to_scalar = function(derivation, output_index) {

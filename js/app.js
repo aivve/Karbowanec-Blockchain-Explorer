@@ -360,30 +360,26 @@
     }
 
     async function loadClientPaymentCrypto() {
-        if (!window.cnUtil || !window.cnUtil.decode_ct_amount || !window.cnUtil.derive_public_key) {
+        if (!window.cnUtil || !window.cnUtil.decode_ct_amount || !window.cnUtil.derive_public_key || !window.cnUtil.decode_tx_proof || !window.cnUtil.check_message_signature) {
             await loadScriptOnce("/js/crypto_utils.js");
         }
-        if (!window.cnUtil || !window.cnUtil.decode_ct_amount || !window.cnUtil.derive_public_key) {
-            throw new Error("Local payment decoder is unavailable.");
+        if (!window.cnUtil || !window.cnUtil.decode_ct_amount || !window.cnUtil.derive_public_key || !window.cnUtil.decode_tx_proof || !window.cnUtil.check_message_signature) {
+            throw new Error("Local crypto module is unavailable.");
         }
         return window.cnUtil;
     }
 
-    async function verifyPaymentClientSide(transaction, keyType, secret, address) {
-        if (keyType !== "tx_key" && keyType !== "view_key") return null;
+    async function validateAddressClientSide(address) {
         var cnUtil = await loadClientPaymentCrypto();
-        var decodedAddress = cnUtil.decode_address(address);
-        var derivation = "";
-        var normalizedSecret = String(secret || "").trim();
-        if (keyType === "view_key") {
-            if (normalizedSecret.length === 256) normalizedSecret = normalizedSecret.slice(-64);
-            var txPublicKey = transactionPublicKey(transaction);
-            if (!txPublicKey) throw new Error("Transaction public key is unavailable.");
-            derivation = cnUtil.generate_key_derivation(txPublicKey, normalizedSecret);
-        } else {
-            derivation = cnUtil.generate_key_derivation(decodedAddress.view, normalizedSecret);
-        }
+        var decodedAddress = cnUtil.decode_address(String(address || "").trim());
+        return {
+            is_valid: true,
+            view_public_key: decodedAddress.view || "",
+            spend_public_key: decodedAddress.spend || ""
+        };
+    }
 
+    function scanPaymentOutputsClientSide(transaction, derivation, decodedAddress, cnUtil) {
         var outputs = transactionOutputs(transaction);
         var matchingOutputs = [];
         var total = 0n;
@@ -406,12 +402,49 @@
             total += amount;
             matchingOutputs.push(clonePaymentOutputWithAmount(output, amount));
         });
+        return {
+            total: total,
+            outputs: matchingOutputs
+        };
+    }
 
+    async function verifyPaymentClientSide(transaction, keyType, secret, address) {
+        if (keyType !== "tx_key" && keyType !== "view_key" && keyType !== "tx_proof") return null;
+        var cnUtil = await loadClientPaymentCrypto();
+        var decodedAddress = cnUtil.decode_address(address);
+        var derivation = "";
+        var normalizedSecret = String(secret || "").trim();
+        if (keyType === "view_key") {
+            if (normalizedSecret.length === 256) normalizedSecret = normalizedSecret.slice(-64);
+            var txPublicKey = transactionPublicKey(transaction);
+            if (!txPublicKey) throw new Error("Transaction public key is unavailable.");
+            derivation = cnUtil.generate_key_derivation(txPublicKey, normalizedSecret);
+        } else if (keyType === "tx_key") {
+            derivation = cnUtil.generate_key_derivation(decodedAddress.view, normalizedSecret);
+        } else {
+            var proof = cnUtil.decode_tx_proof(normalizedSecret);
+            var proofTxPublicKey = transactionPublicKey(transaction);
+            var txHash = transaction && transaction.hash ? String(transaction.hash).trim() : "";
+            if (!proofTxPublicKey) throw new Error("Transaction public key is unavailable.");
+            if (!txHash) throw new Error("Transaction hash is unavailable.");
+            var proofValid = cnUtil.check_tx_proof(txHash, proofTxPublicKey, decodedAddress.view, proof.derivation, proof.signature);
+            if (!proofValid) {
+                return {
+                    signatureValid: false,
+                    amount: 0n,
+                    amountUnavailable: false,
+                    outputs: []
+                };
+            }
+            derivation = cnUtil.generate_key_derivation(proof.derivation, cnUtil.scalar_one());
+        }
+
+        var scanResult = scanPaymentOutputsClientSide(transaction, derivation, decodedAddress, cnUtil);
         return {
             signatureValid: true,
-            amount: total,
+            amount: scanResult.total,
             amountUnavailable: false,
-            outputs: matchingOutputs
+            outputs: scanResult.outputs
         };
     }
 
@@ -1357,7 +1390,7 @@
 
                         if (registration.address) {
                             try {
-                                var validation = await rpcCall(this.api, "validateaddress", { address: registration.address });
+                                var validation = await validateAddressClientSide(registration.address);
                                 if (token !== this.routeRequestId) return null;
                                 registration.addressKeysMatch = Boolean(
                                     (validation.view_public_key || "") === registration.viewPublicKey &&
@@ -1958,7 +1991,7 @@
                 this.addressView.accountNumberError = "";
                 try {
                     var address = this.route.params.address;
-                    var validationPromise = rpcCall(this.api, "validateaddress", { address: address });
+                    var validationPromise = validateAddressClientSide(address);
                     var accountNumberPromise = rpcCall(this.api, "getaccountnumber", { address: address }).catch(function (error) {
                         return { __error: error };
                     });
@@ -2021,7 +2054,7 @@
                     };
                     if (address) {
                         try {
-                            var validation = await rpcCall(this.api, "validateaddress", { address: address });
+                            var validation = await validateAddressClientSide(address);
                             if (token !== this.routeRequestId) return false;
                             accountData.isValidAddress = coerceBoolean(validation.is_valid);
                             accountData.viewPublicKey = validation.view_public_key || "";
@@ -2369,47 +2402,16 @@
                 this.paymentCheckTool.loading = true;
                 try {
                     var txHash = this.paymentCheckTool.txHash.trim();
-                    var resultMethod = "";
-                    var params = {};
                     var secret = this.paymentCheckTool.secret.trim();
-                    if (this.paymentCheckTool.keyType === "tx_key") {
-                        var txKeyResult = await rpcCall(this.api, "gettransaction", { hash: txHash });
-                        this.paymentCheckTool.txInfo = txKeyResult && txKeyResult.transaction ? txKeyResult.transaction : null;
-                        if (!this.paymentCheckTool.txInfo) throw new Error("Transaction was not found.");
-                        this.paymentCheckTool.result = await verifyPaymentClientSide(
-                            this.paymentCheckTool.txInfo,
-                            this.paymentCheckTool.keyType,
-                            secret,
-                            this.paymentCheckTool.address.trim()
-                        );
-                        return;
-                    } else if (this.paymentCheckTool.keyType === "view_key") {
-                        var viewKeyResult = await rpcCall(this.api, "gettransaction", { hash: txHash });
-                        this.paymentCheckTool.txInfo = viewKeyResult && viewKeyResult.transaction ? viewKeyResult.transaction : null;
-                        if (!this.paymentCheckTool.txInfo) throw new Error("Transaction was not found.");
-                        this.paymentCheckTool.result = await verifyPaymentClientSide(
-                            this.paymentCheckTool.txInfo,
-                            this.paymentCheckTool.keyType,
-                            secret,
-                            this.paymentCheckTool.address.trim()
-                        );
-                        return;
-                    } else {
-                        resultMethod = "checktransactionproof";
-                        params = {
-                            transaction_id: txHash,
-                            signature: secret,
-                            destination_address: this.paymentCheckTool.address.trim()
-                        };
-                    }
-                    var responses = await Promise.all([
-                        rpcCall(this.api, resultMethod, params),
-                        rpcCall(this.api, "gettransaction", { hash: txHash }).catch(function () { return null; })
-                    ]);
-                    var verifyResult = responses[0];
-                    var txResult = responses[1];
+                    var txResult = await rpcCall(this.api, "gettransaction", { hash: txHash });
                     this.paymentCheckTool.txInfo = txResult && txResult.transaction ? txResult.transaction : null;
-                    this.paymentCheckTool.result = normalizePaymentVerificationResult(verifyResult);
+                    if (!this.paymentCheckTool.txInfo) throw new Error("Transaction was not found.");
+                    this.paymentCheckTool.result = await verifyPaymentClientSide(
+                        this.paymentCheckTool.txInfo,
+                        this.paymentCheckTool.keyType,
+                        secret,
+                        this.paymentCheckTool.address.trim()
+                    );
                 } catch (error) {
                     this.paymentCheckTool.error = readableError(error, "Could not verify this payment.");
                 } finally {
@@ -2425,16 +2427,18 @@
                 }
                 this.validateTool.loading = true;
                 try {
-                    var result = await rpcCall(this.api, "validateaddress", {
-                        address: this.validateTool.address.trim()
-                    });
+                    var decodedAddress = await validateAddressClientSide(this.validateTool.address);
                     this.validateTool.result = {
-                        isValid: coerceBoolean(result.is_valid),
-                        viewPublicKey: result.view_public_key || "",
-                        spendPublicKey: result.spend_public_key || ""
+                        isValid: true,
+                        viewPublicKey: decodedAddress.view_public_key || "",
+                        spendPublicKey: decodedAddress.spend_public_key || ""
                     };
                 } catch (error) {
-                    this.validateTool.error = readableError(error, "Could not validate that address.");
+                    this.validateTool.result = {
+                        isValid: false,
+                        viewPublicKey: "",
+                        spendPublicKey: ""
+                    };
                 } finally {
                     this.validateTool.loading = false;
                 }
@@ -2448,13 +2452,14 @@
                 }
                 this.verifyMessageTool.loading = true;
                 try {
-                    var result = await rpcCall(this.api, "verifymessage", {
-                        address: this.verifyMessageTool.address.trim(),
-                        signature: this.verifyMessageTool.signature.trim(),
-                        message: this.verifyMessageTool.message
-                    });
+                    var cnUtil = await loadClientPaymentCrypto();
+                    var sigValid = cnUtil.check_message_signature(
+                        this.verifyMessageTool.message,
+                        this.verifyMessageTool.address.trim(),
+                        this.verifyMessageTool.signature.trim()
+                    );
                     this.verifyMessageTool.result = {
-                        sigValid: coerceBoolean(result.sig_valid)
+                        sigValid: sigValid
                     };
                 } catch (error) {
                     this.verifyMessageTool.error = readableError(error, "Could not verify the message signature.");
@@ -2572,37 +2577,13 @@
                 this.txVerifier.error = "";
                 this.txVerifier.result = null;
                 try {
-                    var method = "";
-                    var params = {};
                     var secret = this.txVerifier.secret.trim();
-                    if (this.txVerifier.keyType === "tx_key") {
-                        this.txVerifier.result = await verifyPaymentClientSide(
-                            this.txView.tx,
-                            this.txVerifier.keyType,
-                            secret,
-                            this.txVerifier.address.trim()
-                        );
-                        this.activeTxTab = "outputs";
-                        return;
-                    } else if (this.txVerifier.keyType === "view_key") {
-                        this.txVerifier.result = await verifyPaymentClientSide(
-                            this.txView.tx,
-                            this.txVerifier.keyType,
-                            secret,
-                            this.txVerifier.address.trim()
-                        );
-                        this.activeTxTab = "outputs";
-                        return;
-                    } else {
-                        method = "checktransactionproof";
-                        params = {
-                            transaction_id: this.txView.tx.hash,
-                            signature: secret,
-                            destination_address: this.txVerifier.address.trim()
-                        };
-                    }
-                    var result = await rpcCall(this.api, method, params);
-                    this.txVerifier.result = normalizePaymentVerificationResult(result);
+                    this.txVerifier.result = await verifyPaymentClientSide(
+                        this.txView.tx,
+                        this.txVerifier.keyType,
+                        secret,
+                        this.txVerifier.address.trim()
+                    );
                     this.activeTxTab = "outputs";
                 } catch (error) {
                     this.txVerifier.error = readableError(error, "Transaction verification failed.");

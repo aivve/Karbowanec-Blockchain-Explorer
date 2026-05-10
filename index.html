@@ -677,7 +677,7 @@
                                             <span>Recipient address</span>
                                             <input v-model.trim="txVerifier.address" type="text" placeholder="Karbo address">
                                         </label>
-                                        <p v-if="txVerifier.keyType === 'view_key'" class="fine-print">Private view keys are used locally in this browser; only public transaction data is fetched from the node.</p>
+                                        <p class="fine-print">Verification runs locally in this browser; only public transaction data is fetched from the node.</p>
                                         <div class="panel-actions">
                                             <button type="submit" class="button button--primary" :disabled="txVerifier.loading">
                                                 <i class="fas fa-key"></i>
@@ -1283,6 +1283,7 @@
                                         {{ broadcastTool.loading ? 'Broadcasting...' : 'Broadcast' }}
                                     </button>
                                 </div>
+                                <p class="fine-print">Broadcasting necessarily sends the signed transaction to the selected node.</p>
                             </form>
                             <div v-if="broadcastTool.error" class="notice notice--error">{{ broadcastTool.error }}</div>
                             <div v-if="broadcastTool.success" class="notice notice--success">{{ broadcastTool.success }}</div>
@@ -1316,6 +1317,7 @@
                                     <span>As of height</span>
                                     <input v-model.trim="reserveTool.height" type="number" min="0" placeholder="Optional block height">
                                 </label>
+                                <p class="fine-print">Reserve proof checking currently uses the selected node for transaction lookup and spent-status checks; proof contents are sent to that node.</p>
                                 <div class="panel-actions">
                                     <button type="submit" class="button button--primary" :disabled="reserveTool.loading">
                                         <i class="fas fa-check"></i>
@@ -1362,7 +1364,7 @@
                                     <span>Recipient address</span>
                                     <input v-model.trim="paymentCheckTool.address" type="text" placeholder="Karbo address">
                                 </label>
-                                <p v-if="paymentCheckTool.keyType === 'view_key'" class="fine-print">Private view keys are used locally in this browser; only public transaction data is fetched from the node.</p>
+                                <p class="fine-print">Verification runs locally in this browser; only public transaction data is fetched from the node.</p>
                                 <div class="panel-actions">
                                     <button type="submit" class="button button--primary" :disabled="paymentCheckTool.loading">
                                         <i class="fas fa-key"></i>
@@ -1396,6 +1398,7 @@
                                     <span>Address</span>
                                     <input v-model.trim="validateTool.address" type="text" placeholder="Karbo address">
                                 </label>
+                                <p class="fine-print">Address decoding runs locally in this browser.</p>
                                 <div class="panel-actions">
                                     <button type="submit" class="button button--primary" :disabled="validateTool.loading">
                                         <i class="fas fa-check-circle"></i>
@@ -1437,6 +1440,7 @@
                                     <span>Message</span>
                                     <textarea v-model.trim="verifyMessageTool.message" rows="4" placeholder="Signed message"></textarea>
                                 </label>
+                                <p class="fine-print">Message signatures are verified locally; the message and signature are not sent to the node.</p>
                                 <div class="panel-actions">
                                     <button type="submit" class="button button--primary" :disabled="verifyMessageTool.loading">
                                         <i class="fas fa-check"></i>
