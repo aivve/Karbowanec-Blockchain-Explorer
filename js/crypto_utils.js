@@ -2136,6 +2136,22 @@ var cnUtil = (function(initConfig) {
         return this.hash_to_scalar(sharedSecret + this.encode_varint(outputIndex) + this.text_to_hex("amount-mask-v1")).slice(0, 16);
     }
 
+    // CT blinding factor = Hs(shared_secret || varint(output_index) || "ct-blinding-v1").
+    // The domain tag is CRITICAL: it separates this scalar from derivation_to_scalar
+    // (the stealth scalar s in P = s*G + B_spend). Without it, a passive observer who
+    // knows the recipient's public address could recover the amount from the public
+    // commitment by computing r*G = P - B_spend and brute-forcing v over the 64
+    // canonical denominations. Matches src/crypto/ct_ecdh.cpp.
+    this.derive_ct_blinding = function(sharedSecret, outputIndex) {
+        if (sharedSecret.length !== 64 || !this.valid_hex(sharedSecret)) {
+            throw "Invalid shared secret";
+        }
+        if (outputIndex < 0 || Math.floor(outputIndex) !== outputIndex) {
+            throw "Invalid CT output index";
+        }
+        return this.hash_to_scalar(sharedSecret + this.encode_varint(outputIndex) + this.text_to_hex("ct-blinding-v1"));
+    };
+
     this.mask_amount = function(sharedSecret, outputIndex, amount) {
         var amountLe = this.u64_to_le_hex(amount);
         var mask = amount_mask.call(this, sharedSecret, outputIndex);
@@ -2152,7 +2168,7 @@ var cnUtil = (function(initConfig) {
 
     this.decode_ct_amount = function(maskedAmount, commitment, derivation, outIndex) {
         var amount = this.unmask_amount(derivation, outIndex, maskedAmount);
-        var blinding = this.derivation_to_scalar(derivation, outIndex);
+        var blinding = this.derive_ct_blinding(derivation, outIndex);
         var expectedCommitment = this.commit(this.scalar_from_u64(amount), blinding);
         if (commitment && expectedCommitment !== commitment) {
             throw "CT output commitment mismatch";

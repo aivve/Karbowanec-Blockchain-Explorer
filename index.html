@@ -720,13 +720,13 @@
                                         <tbody>
                                             <tr v-for="(input, index) in txView.tx.inputs" :key="input.type + '-' + index">
                                                 <template v-if="input.type === '04'">
-                                                    <td><span class="nowrap-value">{{ ctRingAmountText(input.data.ringAmount) }}</span></td>
+                                                    <td><span class="nowrap-value">{{ ctRingBucketsSummary(input) }}</span></td>
                                                     <td><span class="hash-string">{{ input.data.keyImage }}</span></td>
                                                     <td v-if="transactionIsCT"><span class="hash-string">{{ input.data.pseudoCommitment }}</span></td>
                                                     <td class="tx-output-refs">
                                                         <template v-if="input.data.outputs && input.data.outputs.length">
                                                             <span v-for="(ref, refIndex) in input.data.outputs" :key="ref.transactionHash + '-' + refIndex">
-                                                                <a class="inline-link" :href="linkTo({ name: 'transaction', params: { hash: ref.transactionHash }, query: { highlight: ref.number } })" @click.prevent="goTo({ name: 'transaction', params: { hash: ref.transactionHash }, query: { highlight: ref.number } })">{{ (input.data.ringOutputIndexes && input.data.ringOutputIndexes[refIndex] !== undefined) ? input.data.ringOutputIndexes[refIndex] : '?' }} (output #{{ ref.number }})</a><span v-if="refIndex < input.data.outputs.length - 1"> &middot; </span>
+                                                                <a class="inline-link" :href="linkTo({ name: 'transaction', params: { hash: ref.transactionHash }, query: { highlight: ref.number } })" @click.prevent="goTo({ name: 'transaction', params: { hash: ref.transactionHash }, query: { highlight: ref.number } })">{{ ctRingMemberIndex(input, refIndex) }} (output #{{ ref.number }})</a><span v-if="refIndex < input.data.outputs.length - 1"> &middot; </span>
                                                             </span>
                                                         </template>
                                                         <span v-else class="muted">ring of {{ input.data.mixin || 0 }} (references unavailable)</span>

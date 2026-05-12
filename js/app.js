@@ -2640,6 +2640,39 @@
             ctRingAmountText: function (ringAmount) {
                 return this.ctRingAmountIsHidden(ringAmount) ? "hidden" : this.formatCoins(ringAmount, 12);
             },
+            // CT inputs now carry per-member ring references (ringMembers) so a
+            // single input can mix transparent and confidential decoys. Returns
+            // a human-readable summary of the unique buckets used by the ring.
+            ctRingBucketsSummary: function (input) {
+                if (!input || !input.data) return "";
+                var members = input.data.ringMembers;
+                if (Array.isArray(members) && members.length > 0) {
+                    var buckets = {};
+                    for (var i = 0; i < members.length; ++i) {
+                        var amt = String(members[i].amount);
+                        buckets[amt] = true;
+                    }
+                    var keys = Object.keys(buckets);
+                    if (keys.length === 1) return this.ctRingAmountText(keys[0]);
+                    return "mixed (" + keys.length + " buckets)";
+                }
+                // Legacy single-bucket fallback.
+                return this.ctRingAmountText(input.data.ringAmount);
+            },
+            // Per-member outputIndex for the k-th ring slot. Falls back to the
+            // legacy ringOutputIndexes array when the daemon hasn't been
+            // upgraded to the mixed-bucket schema yet.
+            ctRingMemberIndex: function (input, k) {
+                if (!input || !input.data) return "?";
+                var members = input.data.ringMembers;
+                if (Array.isArray(members) && k < members.length) {
+                    var idx = members[k].outputIndex;
+                    return idx !== undefined ? idx : (members[k].output_index !== undefined ? members[k].output_index : "?");
+                }
+                var legacy = input.data.ringOutputIndexes;
+                if (Array.isArray(legacy) && k < legacy.length) return legacy[k];
+                return "?";
+            },
             ctTabHasContent: function (kind) {
                 if (kind === "mlsag") return this.transactionCtSignatures.length > 0;
                 if (kind === "proofs") return this.transactionCtProofs.length > 0;
