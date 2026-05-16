@@ -602,7 +602,7 @@
                                             <span>Version</span>
                                             <strong>
                                                 {{ txView.tx.version || '--' }}
-                                                <span v-if="transactionIsCT" class="status-pill is-online" style="margin-left: 0.5rem;" title="Confidential Transaction: amounts hidden behind Pedersen commitments and proven correct via MLSAG ring signatures and a Groth-Kohlweiss denomination proof.">
+                                                <span v-if="transactionIsCT" class="status-pill is-online" style="margin-left: 0.5rem;" title="Confidential Transaction: amounts hidden behind Pedersen commitments and proven correct via Triptych logarithmic linkable one-out-of-many spend proofs (per input) and Groth-Kohlweiss denomination proofs (per output), bound by a transaction kernel.">
                                                     <i class="fas fa-eye-slash" aria-hidden="true"></i>
                                                     Confidential
                                                 </span>
@@ -796,35 +796,74 @@
                             <article v-if="activeTxTab === 'signatures'" class="panel">
                                 <template v-if="transactionIsCT">
                                     <p class="muted" style="margin: 0 0 0.75rem;">
-                                        Per-input <strong>MLSAG</strong> ring signatures. Each carries an initial challenge <code>c0</code>
-                                        and a flat <code>ss</code> array laid out as alternating spend / commitment scalars per ring member.
+                                        Per-input <strong>Triptych</strong> spend proofs. Each is a Groth-Kohlweiss-descended,
+                                        logarithmic linkable one-out-of-many proof binding the spend authorization, the
+                                        commitment-balance step (<code>M_l = z·G</code> where <code>M_k = C_k − C'</code>) and
+                                        the key-image consistency (<code>I = x·Hp(P_l)</code>). The shape is set by the header
+                                        byte <code>n</code>: <code>n = 0</code> is the Schnorr branch used for ring size 1
+                                        (the v5+ coinbase carve-out), and <code>n ∈ {2, 3, 4}</code> covers ring sizes 4, 8, 16.
                                     </p>
                                     <div v-if="!transactionCtSignatures.length" class="muted">No input signatures exposed.</div>
-                                    <div v-for="(sig, sigIndex) in transactionCtSignatures" :key="'mlsag-' + sigIndex" class="panel" style="margin-top: 0.75rem;">
+                                    <div v-for="(sig, sigIndex) in transactionCtSignatures" :key="'triptych-' + sigIndex" class="panel" style="margin-top: 0.75rem;">
                                         <div class="panel-header">
                                             <div>
                                                 <p class="eyebrow">Input {{ sigIndex }}</p>
-                                                <h3>{{ ctSignatureRingSize(sig) }} ring members</h3>
+                                                <h3>
+                                                    Ring size {{ ctSignatureRingSize(sig) }}
+                                                    <span class="muted">(n = {{ ctSignatureN(sig) }}{{ ctSignatureIsSchnorr(sig) ? ', Schnorr branch' : '' }})</span>
+                                                </h3>
                                             </div>
                                         </div>
-                                        <div class="detail-row"><span>c0</span><strong class="hash-string">{{ sig.c0 }}</strong></div>
-                                        <div class="table-shell">
-                                            <table class="data-table">
-                                                <thead>
-                                                    <tr>
-                                                        <th>#</th>
-                                                        <th>spend (ss[2k])</th>
-                                                        <th>commitment (ss[2k+1])</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <tr v-for="ringIndex in ctSignatureRingSize(sig)" :key="'ring-' + sigIndex + '-' + ringIndex">
-                                                        <td>{{ ringIndex - 1 }}</td>
-                                                        <td><span class="hash-string">{{ ctSignatureRingPair(sig, ringIndex - 1).spend }}</span></td>
-                                                        <td><span class="hash-string">{{ ctSignatureRingPair(sig, ringIndex - 1).commitment }}</span></td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+
+                                        <!-- Point-array tracks: I_bits / A / B / Q_P / Q_M / Q_U.
+                                             In the Schnorr branch only Q_P[0]/Q_M[0]/Q_U[0] are
+                                             present (nonce commits T_P, T_M, T_U); the rest are
+                                             empty. The renderer below transparently shows whatever
+                                             length each array has. -->
+                                        <template v-for="series in ctSignaturePointSeries()">
+                                            <div :key="'pt-' + sigIndex + '-' + series.key" v-if="Array.isArray(sig[series.key]) && sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
+                                                <table class="data-table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>#</th>
+                                                            <th>{{ series.key }} <span class="muted">— {{ series.desc }}</span></th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <tr v-for="(point, ptIdx) in sig[series.key]" :key="'pt-' + sigIndex + '-' + series.key + '-' + ptIdx">
+                                                            <td>{{ ptIdx }}</td>
+                                                            <td><span class="hash-string">{{ point }}</span></td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </template>
+
+                                        <!-- Scalar-array tracks: z / za / zb. Empty in the Schnorr
+                                             branch (no bit decomposition there). -->
+                                        <template v-for="series in ctSignatureScalarSeries()">
+                                            <div :key="'sc-' + sigIndex + '-' + series.key" v-if="Array.isArray(sig[series.key]) && sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
+                                                <table class="data-table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>#</th>
+                                                            <th>{{ series.key }} <span class="muted">— {{ series.desc }}</span></th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <tr v-for="(scalar, scIdx) in sig[series.key]" :key="'sc-' + sigIndex + '-' + series.key + '-' + scIdx">
+                                                            <td>{{ scIdx }}</td>
+                                                            <td><span class="hash-string">{{ scalar }}</span></td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </template>
+
+                                        <!-- Final witness responses, always present. -->
+                                        <div v-for="final in ctSignatureFinalScalars(sig)" :key="'fin-' + sigIndex + '-' + final.key" class="detail-row">
+                                            <span>{{ final.key }}</span>
+                                            <strong class="hash-string">{{ final.value }}</strong>
                                         </div>
                                     </div>
                                 </template>

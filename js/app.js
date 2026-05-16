@@ -39,8 +39,9 @@
     var SCRIPT_PROMISES = Object.create(null);
 
     // CT (Confidential Transactions) — version 2 hides per-output amounts behind
-    // Pedersen commitments and proves correctness via per-input MLSAG ring sigs,
-    // per-output Groth-Kohlweiss denomination proofs, and a transaction kernel.
+    // Pedersen commitments and proves correctness via per-input Triptych spend
+    // proofs, per-output Groth-Kohlweiss denomination proofs, and a transaction
+    // kernel that binds the balance equation.
     var TRANSACTION_VERSION_CT = 2;
 
     function isConfidentialTransaction(transaction) {
@@ -2674,18 +2675,63 @@
                 return "?";
             },
             ctTabHasContent: function (kind) {
-                if (kind === "mlsag") return this.transactionCtSignatures.length > 0;
+                // "triptych" is the Triptych input-proofs tab (formerly "mlsag");
+                // alias kept for backwards compatibility while the HTML is being
+                // migrated.
+                if (kind === "triptych" || kind === "mlsag") return this.transactionCtSignatures.length > 0;
                 if (kind === "proofs") return this.transactionCtProofs.length > 0;
                 if (kind === "kernel") return Boolean(this.transactionCtKernel);
                 return false;
             },
-            ctSignatureRingPair: function (sig, index) {
-                var ss = sig && Array.isArray(sig.ss) ? sig.ss : [];
-                return { spend: ss[2 * index] || "", commitment: ss[2 * index + 1] || "" };
+            // ── Triptych spend-proof helpers ─────────────────────────────────
+            // Shape on the wire:
+            //   n          : 0 (Schnorr branch, ring size 1) or 2/3/4 (full
+            //                Triptych at ring size 4/8/16)
+            //   I_bits[]   : bit-decomposition commitments, length n
+            //   A[], B[]   : bitness aux commitments, length n
+            //   Q_P[], Q_M[], Q_U[] : polynomial coefficient commitments;
+            //                length n for full Triptych; length 1 for the
+            //                Schnorr branch (Schnorr nonce commits T_P/T_M/T_U)
+            //   z[], za[], zb[] : per-bit response scalars, length n (empty
+            //                in the Schnorr branch)
+            //   f_P, f_M, f_U   : response scalars (always three)
+            ctSignatureN: function (sig) {
+                if (!sig) return 0;
+                if (typeof sig.n === "number") return sig.n;
+                if (Array.isArray(sig.I_bits)) return sig.I_bits.length;
+                return 0;
             },
             ctSignatureRingSize: function (sig) {
-                var ss = sig && Array.isArray(sig.ss) ? sig.ss : [];
-                return Math.floor(ss.length / 2);
+                var n = this.ctSignatureN(sig);
+                return n === 0 ? 1 : Math.pow(2, n);
+            },
+            ctSignatureIsSchnorr: function (sig) {
+                return this.ctSignatureN(sig) === 0;
+            },
+            ctSignaturePointSeries: function () {
+                return [
+                    { key: "I_bits", desc: "commitments to secret index bits l_j" },
+                    { key: "A",      desc: "bitness aux commitments" },
+                    { key: "B",      desc: "bitness aux commitments" },
+                    { key: "Q_P",    desc: "P-ring polynomial coefficients (G-base)" },
+                    { key: "Q_M",    desc: "M-ring polynomial coefficients (G-base; M_k = C_k − C')" },
+                    { key: "Q_U",    desc: "U-ring polynomial coefficients (I-base; U_k = Hp(P_k))" }
+                ];
+            },
+            ctSignatureScalarSeries: function () {
+                return [
+                    { key: "z",  desc: "bit-commitment responses" },
+                    { key: "za", desc: "opening responses for x·I_bits + A" },
+                    { key: "zb", desc: "opening responses for (x−z)·I_bits + B" }
+                ];
+            },
+            ctSignatureFinalScalars: function (sig) {
+                if (!sig) return [];
+                return [
+                    { key: "f_P", value: sig.f_P || "" },
+                    { key: "f_M", value: sig.f_M || "" },
+                    { key: "f_U", value: sig.f_U || "" }
+                ];
             },
             ctProofFields: function () {
                 return [
