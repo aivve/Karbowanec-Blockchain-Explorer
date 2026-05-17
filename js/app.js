@@ -2736,6 +2736,21 @@
             ctSignatureIsEmptySlot: function (sig) {
                 return this.ctSignatureN(sig) === 255;
             },
+            // tx.signatures comes from the explorer RPC as a flattened
+            // [{ first: inputIndex, second: sigHex }, ...] list. Pull every
+            // entry whose first === inputIndex; that's the ring signature
+            // for that input, one entry per ring member.
+            keyInputRingSig: function (inputIndex) {
+                if (!this.txView.tx || !Array.isArray(this.txView.tx.signatures)) return [];
+                var result = [];
+                for (var i = 0; i < this.txView.tx.signatures.length; ++i) {
+                    var entry = this.txView.tx.signatures[i];
+                    if (entry && Number(entry.first) === Number(inputIndex)) {
+                        result.push(entry.second);
+                    }
+                }
+                return result;
+            },
             ctSignatureRingSize: function (sig) {
                 var n = this.ctSignatureN(sig);
                 if (n === 255) return 0;

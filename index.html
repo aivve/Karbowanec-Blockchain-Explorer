@@ -824,10 +824,27 @@
                                             </div>
                                         </div>
                                         <template v-if="ctSignatureIsEmptySlot(sig)">
-                                            <p class="muted" style="margin: 0;">
+                                            <p class="muted" style="margin: 0 0 0.5rem;">
                                                 This input is a transparent KeyOutput being shielded into the CT pool;
-                                                no Triptych proof body is emitted for this slot.
+                                                no Triptych proof body is emitted for this slot. Authorization is the
+                                                legacy ring signature below — one signature per ring member.
                                             </p>
+                                            <div class="table-shell" style="margin-top: 0.5rem;">
+                                                <table class="data-table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>#</th>
+                                                            <th>Ring signature</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <tr v-for="(sigPair, sigPairIdx) in keyInputRingSig(sigIndex)" :key="'krs-' + sigIndex + '-' + sigPairIdx">
+                                                            <td>{{ sigPairIdx }}</td>
+                                                            <td><span class="hash-string">{{ sigPair }}</span></td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         </template>
 
                                         <template v-if="!ctSignatureIsEmptySlot(sig)">
