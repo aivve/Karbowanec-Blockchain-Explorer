@@ -574,6 +574,11 @@
                                     <span class="metric-meta">Serialized transaction size</span>
                                 </article>
                                 <article class="metric-card">
+                                    <span class="metric-label">Inputs / Outputs</span>
+                                    <strong>{{ formatNumber(transactionInputsCount) }} / {{ formatNumber(transactionOutputsCount) }}</strong>
+                                    <span class="metric-meta">{{ transactionInputOutputMeta }}</span>
+                                </article>
+                                <article class="metric-card">
                                     <span class="metric-label">Mixin</span>
                                     <strong>{{ transactionMixinText }}</strong>
                                     <span class="metric-meta">{{ transactionMixinMeta }}</span>
@@ -808,63 +813,75 @@
                                         <div class="panel-header">
                                             <div>
                                                 <p class="eyebrow">Input {{ sigIndex }}</p>
-                                                <h3>
+                                                <h3 v-if="ctSignatureIsEmptySlot(sig)">
+                                                    Transparent shielding
+                                                    <span class="muted">(n = 0xFF — KeyInput authorized by legacy ring signature, see Inputs tab)</span>
+                                                </h3>
+                                                <h3 v-else>
                                                     Ring size {{ ctSignatureRingSize(sig) }}
                                                     <span class="muted">(n = {{ ctSignatureN(sig) }}{{ ctSignatureIsSchnorr(sig) ? ', Schnorr branch' : '' }})</span>
                                                 </h3>
                                             </div>
                                         </div>
-
-                                        <!-- Point-array tracks: I_bits / A / B / Q_P / Q_M / Q_U.
-                                             In the Schnorr branch only Q_P[0]/Q_M[0]/Q_U[0] are
-                                             present (nonce commits T_P, T_M, T_U); the rest are
-                                             empty. The renderer below transparently shows whatever
-                                             length each array has. -->
-                                        <template v-for="series in ctSignaturePointSeries()">
-                                            <div :key="'pt-' + sigIndex + '-' + series.key" v-if="Array.isArray(sig[series.key]) && sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
-                                                <table class="data-table">
-                                                    <thead>
-                                                        <tr>
-                                                            <th>#</th>
-                                                            <th>{{ series.key }} <span class="muted">— {{ series.desc }}</span></th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        <tr v-for="(point, ptIdx) in sig[series.key]" :key="'pt-' + sigIndex + '-' + series.key + '-' + ptIdx">
-                                                            <td>{{ ptIdx }}</td>
-                                                            <td><span class="hash-string">{{ point }}</span></td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
+                                        <template v-if="ctSignatureIsEmptySlot(sig)">
+                                            <p class="muted" style="margin: 0;">
+                                                This input is a transparent KeyOutput being shielded into the CT pool;
+                                                no Triptych proof body is emitted for this slot.
+                                            </p>
                                         </template>
 
-                                        <!-- Scalar-array tracks: z / za / zb. Empty in the Schnorr
-                                             branch (no bit decomposition there). -->
-                                        <template v-for="series in ctSignatureScalarSeries()">
-                                            <div :key="'sc-' + sigIndex + '-' + series.key" v-if="Array.isArray(sig[series.key]) && sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
-                                                <table class="data-table">
-                                                    <thead>
-                                                        <tr>
-                                                            <th>#</th>
-                                                            <th>{{ series.key }} <span class="muted">— {{ series.desc }}</span></th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        <tr v-for="(scalar, scIdx) in sig[series.key]" :key="'sc-' + sigIndex + '-' + series.key + '-' + scIdx">
-                                                            <td>{{ scIdx }}</td>
-                                                            <td><span class="hash-string">{{ scalar }}</span></td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
+                                        <template v-if="!ctSignatureIsEmptySlot(sig)">
+                                            <!-- Point-array tracks: I_bits / A / B / Q_P / Q_M / Q_U.
+                                                 In the Schnorr branch only Q_P[0]/Q_M[0]/Q_U[0] are
+                                                 present (nonce commits T_P, T_M, T_U); the rest are
+                                                 empty. The renderer below transparently shows whatever
+                                                 length each array has. -->
+                                            <template v-for="series in ctSignaturePointSeries()">
+                                                <div :key="'pt-' + sigIndex + '-' + series.key" v-if="Array.isArray(sig[series.key]) && sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
+                                                    <table class="data-table">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>#</th>
+                                                                <th>{{ series.key }} <span class="muted">— {{ series.desc }}</span></th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <tr v-for="(point, ptIdx) in sig[series.key]" :key="'pt-' + sigIndex + '-' + series.key + '-' + ptIdx">
+                                                                <td>{{ ptIdx }}</td>
+                                                                <td><span class="hash-string">{{ point }}</span></td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </template>
+
+                                            <!-- Scalar-array tracks: z / za / zb. Empty in the Schnorr
+                                                 branch (no bit decomposition there). -->
+                                            <template v-for="series in ctSignatureScalarSeries()">
+                                                <div :key="'sc-' + sigIndex + '-' + series.key" v-if="Array.isArray(sig[series.key]) && sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
+                                                    <table class="data-table">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>#</th>
+                                                                <th>{{ series.key }} <span class="muted">— {{ series.desc }}</span></th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <tr v-for="(scalar, scIdx) in sig[series.key]" :key="'sc-' + sigIndex + '-' + series.key + '-' + scIdx">
+                                                                <td>{{ scIdx }}</td>
+                                                                <td><span class="hash-string">{{ scalar }}</span></td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </template>
+
+                                            <!-- Final witness responses, always present for non-empty slots. -->
+                                            <div v-for="final in ctSignatureFinalScalars(sig)" :key="'fin-' + sigIndex + '-' + final.key" class="detail-row">
+                                                <span>{{ final.key }}</span>
+                                                <strong class="hash-string">{{ final.value }}</strong>
                                             </div>
                                         </template>
-
-                                        <!-- Final witness responses, always present. -->
-                                        <div v-for="final in ctSignatureFinalScalars(sig)" :key="'fin-' + sigIndex + '-' + final.key" class="detail-row">
-                                            <span>{{ final.key }}</span>
-                                            <strong class="hash-string">{{ final.value }}</strong>
-                                        </div>
                                     </div>
                                 </template>
                                 <template v-else>

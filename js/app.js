@@ -1099,6 +1099,34 @@
                 if (min && max && min !== max) return "Varies per input — see Inputs";
                 return "Ring size indicator";
             },
+            transactionInputsCount: function () {
+                return this.txView.tx && Array.isArray(this.txView.tx.inputs) ? this.txView.tx.inputs.length : 0;
+            },
+            transactionOutputsCount: function () {
+                return this.txView.tx && Array.isArray(this.txView.tx.outputs) ? this.txView.tx.outputs.length : 0;
+            },
+            transactionInputOutputMeta: function () {
+                if (!this.txView.tx) return "Spent inputs / created outputs";
+                var inputs = Array.isArray(this.txView.tx.inputs) ? this.txView.tx.inputs : [];
+                // v2 CT can carry mixed input shapes: type "04" ConfidentialInput
+                // (Triptych) for hidden spends, type "02" KeyInput (legacy ring
+                // sig) for transparent dust shielding into the CT pool.
+                if (this.transactionIsCT) {
+                    var ctInputs = 0;
+                    var keyInputs = 0;
+                    inputs.forEach(function (input) {
+                        if (!input) return;
+                        if (input.type === "04") ctInputs += 1;
+                        else if (input.type !== "ff") keyInputs += 1;
+                    });
+                    if (ctInputs > 0 && keyInputs > 0) {
+                        return ctInputs + " confidential + " + keyInputs + " shielding";
+                    }
+                    if (keyInputs > 0) return "shielding into CT pool";
+                    if (ctInputs > 0) return "confidential spends";
+                }
+                return "Spent inputs / created outputs";
+            },
             transactionCtSignatures: function () {
                 return this.txView.tx && Array.isArray(this.txView.tx.ctSignatures) ? this.txView.tx.ctSignatures : [];
             },
@@ -2701,8 +2729,16 @@
                 if (Array.isArray(sig.I_bits)) return sig.I_bits.length;
                 return 0;
             },
+            // n=255 is the empty-slot sentinel: the matching tx.inputs[i] is
+            // a v2 KeyInput (transparent shielding), whose authorization
+            // lives in tx.signatures[i] as a legacy ring signature. There's
+            // no Triptych proof body to render for this slot.
+            ctSignatureIsEmptySlot: function (sig) {
+                return this.ctSignatureN(sig) === 255;
+            },
             ctSignatureRingSize: function (sig) {
                 var n = this.ctSignatureN(sig);
+                if (n === 255) return 0;
                 return n === 0 ? 1 : Math.pow(2, n);
             },
             ctSignatureIsSchnorr: function (sig) {
