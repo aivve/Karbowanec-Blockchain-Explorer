@@ -927,7 +927,7 @@ html[data-theme="dark"] .data-table td .hash-string {
 }
 
 .tx-output-refs {
-    min-width: 240px;
+    min-width: 320px;
 }
 
 .hash-string {
@@ -940,6 +940,22 @@ html[data-theme="dark"] .data-table td .hash-string {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* In tx Inputs/Outputs tables we want long 64-char hashes (stealth keys,
+ * commitments, key images, pseudo-commitments) to ellipsize so the table
+ * fits a desktop width without horizontal scrolling. .hash-string already
+ * has the truncation rules but with no width constraint on the surrounding
+ * <td> it never has a definite parent to ellipsize against — wrap it in
+ * this fixed-width block so the inner span truncates predictably. The
+ * native title tooltip + click-to-copy from outside the cell still expose
+ * the full hash. */
+.data-table .hash-cell {
+    max-width: 14rem;
+    overflow: hidden;
+}
+.data-table .hash-cell .hash-string {
+    max-width: 14rem;
 }
 
 .page-title.hash-string {

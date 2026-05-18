@@ -90,6 +90,11 @@
                                 <span class="metric-meta">Already generated coins</span>
                             </article>
                             <article class="metric-card">
+                                <span class="metric-label">Confidential supply</span>
+                                <strong>{{ stats && stats.confidential_supply !== undefined ? formatCoins(stats.confidential_supply) : '--' }}</strong>
+                                <span class="metric-meta">Coins currently locked in CT pool</span>
+                            </article>
+                            <article class="metric-card">
                                 <span class="metric-label">Difficulty</span>
                                 <strong>{{ stats ? formatDifficulty(stats.difficulty) : '--' }}</strong>
                                 <span class="metric-meta">Target interval {{ formatDuration(blockTargetInterval) }}</span>
@@ -103,11 +108,6 @@
                                 <span class="metric-label">Next reward</span>
                                 <strong>{{ stats ? formatCoins(stats.next_reward) : '--' }}</strong>
                                 <span class="metric-meta">Projected base block reward</span>
-                            </article>
-                            <article class="metric-card">
-                                <span class="metric-label">Min fee</span>
-                                <strong>{{ stats ? formatCoins(stats.min_fee) : '--' }}</strong>
-                                <span class="metric-meta">Network minimum fee</span>
                             </article>
                             <article class="metric-card">
                                 <span class="metric-label">Account numbers</span>
@@ -588,6 +588,17 @@
                                     <strong>{{ formatNumber(txView.tx.unlockTime) }}</strong>
                                     <span class="metric-meta">Spendable after unlock height/time</span>
                                 </article>
+                                <article class="metric-card">
+                                    <span class="metric-label">Version</span>
+                                    <strong>
+                                        {{ txView.tx.version || '--' }}
+                                        <span v-if="transactionIsCT" class="status-pill is-online" style="margin-left: 0.5rem;" title="Confidential Transaction: amounts hidden behind Pedersen commitments and proven correct via Triptych logarithmic linkable one-out-of-many spend proofs (per input) and Groth-Kohlweiss denomination proofs (per output), bound by a transaction kernel.">
+                                            <i class="fas fa-eye-slash" aria-hidden="true"></i>
+                                            Confidential
+                                        </span>
+                                    </strong>
+                                    <span class="metric-meta">{{ transactionIsCT ? 'CT (v2)' : 'Transparent (v1)' }}</span>
+                                </article>
                             </div>
 
                             <div class="panel-grid">
@@ -602,16 +613,6 @@
                                         <div class="detail-row" v-if="txView.tx.inBlockchain">
                                             <span>Block hash</span>
                                             <a class="hash-string inline-link" :href="linkTo({ name: 'block', params: { hash: txView.tx.blockHash } })" @click.prevent="goTo({ name: 'block', params: { hash: txView.tx.blockHash } })">{{ txView.tx.blockHash }}</a>
-                                        </div>
-                                        <div class="detail-row">
-                                            <span>Version</span>
-                                            <strong>
-                                                {{ txView.tx.version || '--' }}
-                                                <span v-if="transactionIsCT" class="status-pill is-online" style="margin-left: 0.5rem;" title="Confidential Transaction: amounts hidden behind Pedersen commitments and proven correct via Triptych logarithmic linkable one-out-of-many spend proofs (per input) and Groth-Kohlweiss denomination proofs (per output), bound by a transaction kernel.">
-                                                    <i class="fas fa-eye-slash" aria-hidden="true"></i>
-                                                    Confidential
-                                                </span>
-                                            </strong>
                                         </div>
                                         <div class="detail-row"><span>Public key</span><strong class="hash-string">{{ txView.tx.extra && txView.tx.extra.publicKey ? txView.tx.extra.publicKey : '--' }}</strong></div>
                                         <div class="detail-row"><span>Raw extra</span><strong class="hash-string">{{ txView.tx.extra && txView.tx.extra.raw ? txView.tx.extra.raw : '--' }}</strong></div>
@@ -726,8 +727,8 @@
                                             <tr v-for="(input, index) in txView.tx.inputs" :key="input.type + '-' + index">
                                                 <template v-if="input.type === '04'">
                                                     <td><span class="nowrap-value">{{ ctRingBucketsSummary(input) }}</span></td>
-                                                    <td><span class="hash-string">{{ input.data.keyImage }}</span></td>
-                                                    <td v-if="transactionIsCT"><span class="hash-string">{{ input.data.pseudoCommitment }}</span></td>
+                                                    <td class="hash-cell" :title="input.data.keyImage"><span class="hash-string">{{ input.data.keyImage }}</span></td>
+                                                    <td v-if="transactionIsCT" class="hash-cell" :title="input.data.pseudoCommitment"><span class="hash-string">{{ input.data.pseudoCommitment }}</span></td>
                                                     <td class="tx-output-refs">
                                                         <template v-if="input.data.outputs && input.data.outputs.length">
                                                             <span v-for="(ref, refIndex) in input.data.outputs" :key="ref.transactionHash + '-' + refIndex">
@@ -740,7 +741,7 @@
                                                 </template>
                                                 <template v-else-if="input.type !== 'ff'">
                                                     <td><span class="nowrap-value">{{ formatCoins(input.data.input.amount, 12) }}</span></td>
-                                                    <td><span class="hash-string">{{ input.data.input.k_image }}</span></td>
+                                                    <td class="hash-cell" :title="input.data.input.k_image"><span class="hash-string">{{ input.data.input.k_image }}</span></td>
                                                     <td v-if="transactionIsCT" class="muted">--</td>
                                                     <td class="tx-output-refs">
                                                         <span v-for="(offset, offsetIndex) in input.data.input.key_offsets" :key="offset + '-' + offsetIndex">
@@ -776,12 +777,12 @@
                                         <tbody>
                                             <tr v-for="(output, index) in txView.tx.outputs" :key="outputStealthKey(output.output.target) + '-' + index" :class="{ 'row-highlight': isOutputHighlighted(output, index) }">
                                                 <td><span class="nowrap-value">{{ output.output.target.type === '04' ? 'hidden' : formatCoins(output.output.amount, 12) }}</span></td>
-                                                <td><span class="hash-string">{{ outputStealthKey(output.output.target) }}</span></td>
-                                                <td v-if="transactionIsCT">
+                                                <td class="hash-cell" :title="outputStealthKey(output.output.target)"><span class="hash-string">{{ outputStealthKey(output.output.target) }}</span></td>
+                                                <td v-if="transactionIsCT" class="hash-cell" :title="output.output.target.type === '04' ? outputCommitment(output.output.target) : ''">
                                                     <span v-if="output.output.target.type === '04'" class="hash-string">{{ outputCommitment(output.output.target) }}</span>
                                                     <span v-else class="muted">--</span>
                                                 </td>
-                                                <td v-if="transactionIsCT">
+                                                <td v-if="transactionIsCT" class="hash-cell" :title="output.output.target.type === '04' ? outputMaskedAmount(output.output.target) : ''">
                                                     <span v-if="output.output.target.type === '04'" class="hash-string">{{ outputMaskedAmount(output.output.target) }}</span>
                                                     <span v-else class="muted">--</span>
                                                 </td>
