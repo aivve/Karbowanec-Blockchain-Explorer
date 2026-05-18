@@ -2713,16 +2713,19 @@
             },
             // ── Triptych spend-proof helpers ─────────────────────────────────
             // Shape on the wire:
-            //   n          : 0 (Schnorr branch, ring size 1) or 2/3/4 (full
-            //                Triptych at ring size 4/8/16)
+            //   n          : 2/3/4 (full Triptych at ring size 4/8/16) or
+            //                0xFF (empty slot — matching tx.inputs[i] is a
+            //                v2 KeyInput, see ctSignatureIsEmptySlot)
             //   I_bits[]   : bit-decomposition commitments, length n
             //   A[], B[]   : bitness aux commitments, length n
-            //   Q_P[], Q_M[], Q_U[] : polynomial coefficient commitments;
-            //                length n for full Triptych; length 1 for the
-            //                Schnorr branch (Schnorr nonce commits T_P/T_M/T_U)
-            //   z[], za[], zb[] : per-bit response scalars, length n (empty
-            //                in the Schnorr branch)
+            //   Q_P[], Q_M[], Q_U[] : polynomial coefficient commitments, length n
+            //   z[], za[], zb[] : per-bit response scalars, length n
             //   f_P, f_M, f_U   : response scalars (always three)
+            //
+            // n=0 used to be a Schnorr branch for ring size 1; it was
+            // removed because the proof shape didn't bind the same x in
+            // P=xG and I=x·Hp(P). Coinbase shielding goes through v2
+            // KeyInput now.
             ctSignatureN: function (sig) {
                 if (!sig) return 0;
                 if (typeof sig.n === "number") return sig.n;
@@ -2754,10 +2757,7 @@
             ctSignatureRingSize: function (sig) {
                 var n = this.ctSignatureN(sig);
                 if (n === 255) return 0;
-                return n === 0 ? 1 : Math.pow(2, n);
-            },
-            ctSignatureIsSchnorr: function (sig) {
-                return this.ctSignatureN(sig) === 0;
+                return Math.pow(2, n);
             },
             ctSignaturePointSeries: function () {
                 return [

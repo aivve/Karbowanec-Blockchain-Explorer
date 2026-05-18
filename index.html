@@ -805,8 +805,8 @@
                                         logarithmic linkable one-out-of-many proof binding the spend authorization, the
                                         commitment-balance step (<code>M_l = z·G</code> where <code>M_k = C_k − C'</code>) and
                                         the key-image consistency (<code>I = x·Hp(P_l)</code>). The shape is set by the header
-                                        byte <code>n</code>: <code>n = 0</code> is the Schnorr branch used for ring size 1
-                                        (the v5+ coinbase carve-out), and <code>n ∈ {2, 3, 4}</code> covers ring sizes 4, 8, 16.
+                                        byte <code>n ∈ {2, 3, 4}</code> covering ring sizes 4, 8, 16. Transparent shielding
+                                        (KeyInput) slots show <code>n = 0xFF</code> with the legacy ring signature inlined.
                                     </p>
                                     <div v-if="!transactionCtSignatures.length" class="muted">No input signatures exposed.</div>
                                     <div v-for="(sig, sigIndex) in transactionCtSignatures" :key="'triptych-' + sigIndex" class="panel" style="margin-top: 0.75rem;">
@@ -819,7 +819,7 @@
                                                 </h3>
                                                 <h3 v-else>
                                                     Ring size {{ ctSignatureRingSize(sig) }}
-                                                    <span class="muted">(n = {{ ctSignatureN(sig) }}{{ ctSignatureIsSchnorr(sig) ? ', Schnorr branch' : '' }})</span>
+                                                    <span class="muted">(n = {{ ctSignatureN(sig) }})</span>
                                                 </h3>
                                             </div>
                                         </div>
@@ -849,10 +849,9 @@
 
                                         <template v-if="!ctSignatureIsEmptySlot(sig)">
                                             <!-- Point-array tracks: I_bits / A / B / Q_P / Q_M / Q_U.
-                                                 In the Schnorr branch only Q_P[0]/Q_M[0]/Q_U[0] are
-                                                 present (nonce commits T_P, T_M, T_U); the rest are
-                                                 empty. The renderer below transparently shows whatever
-                                                 length each array has. -->
+                                                 Each is length n ∈ {2, 3, 4} for the supported Triptych
+                                                 shapes; the renderer transparently shows whatever length
+                                                 each array has. -->
                                             <template v-for="series in ctSignaturePointSeries()">
                                                 <div :key="'pt-' + sigIndex + '-' + series.key" v-if="Array.isArray(sig[series.key]) && sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
                                                     <table class="data-table">
@@ -872,8 +871,7 @@
                                                 </div>
                                             </template>
 
-                                            <!-- Scalar-array tracks: z / za / zb. Empty in the Schnorr
-                                                 branch (no bit decomposition there). -->
+                                            <!-- Scalar-array tracks: z / za / zb, each length n. -->
                                             <template v-for="series in ctSignatureScalarSeries()">
                                                 <div :key="'sc-' + sigIndex + '-' + series.key" v-if="Array.isArray(sig[series.key]) && sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
                                                     <table class="data-table">
