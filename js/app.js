@@ -1127,8 +1127,27 @@
                 }
                 return "Spent inputs / created outputs";
             },
-            transactionCtSignatures: function () {
-                return this.txView.tx && Array.isArray(this.txView.tx.ctSignatures) ? this.txView.tx.ctSignatures : [];
+            // Per-input authorization entries, dispatched by the variant tag
+            // the daemon emits in tx.signatures. Returned as objects so the
+            // template can render the right body per input index.
+            //   { inputIndex, kind: "base" }                — coinbase
+            //   { inputIndex, kind: "key", sigs: string[] } — legacy ring sig
+            //   { inputIndex, kind: "ct",  sig: <Triptych> } — confidential
+            transactionInputSignatures: function () {
+                var sigs = this.txView.tx && Array.isArray(this.txView.tx.signatures) ? this.txView.tx.signatures : [];
+                var out = [];
+                for (var i = 0; i < sigs.length; ++i) {
+                    var entry = sigs[i] || {};
+                    var type = entry.type || "base";
+                    if (type === "ct") {
+                        out.push({ inputIndex: i, kind: "ct", sig: entry });
+                    } else if (type === "key") {
+                        out.push({ inputIndex: i, kind: "key", sigs: Array.isArray(entry.sigs) ? entry.sigs : [] });
+                    } else {
+                        out.push({ inputIndex: i, kind: "base" });
+                    }
+                }
+                return out;
             },
             transactionCtProofs: function () {
                 return this.txView.tx && Array.isArray(this.txView.tx.ctProofs) ? this.txView.tx.ctProofs : [];
@@ -1957,7 +1976,6 @@
                     transaction.inputs = Array.isArray(transaction.inputs) ? transaction.inputs : [];
                     transaction.outputs = Array.isArray(transaction.outputs) ? transaction.outputs : [];
                     transaction.signatures = Array.isArray(transaction.signatures) ? transaction.signatures : [];
-                    transaction.ctSignatures = Array.isArray(transaction.ctSignatures) ? transaction.ctSignatures : [];
                     transaction.ctProofs = Array.isArray(transaction.ctProofs) ? transaction.ctProofs : [];
                     transaction.kernel = transaction.kernel && typeof transaction.kernel === "object" ? transaction.kernel : null;
                     transaction.extra = transaction.extra && typeof transaction.extra === "object" ? transaction.extra : {};
@@ -2703,60 +2721,27 @@
                 return "?";
             },
             ctTabHasContent: function (kind) {
-                // "triptych" is the Triptych input-proofs tab (formerly "mlsag");
-                // alias kept for backwards compatibility while the HTML is being
-                // migrated.
-                if (kind === "triptych" || kind === "mlsag") return this.transactionCtSignatures.length > 0;
+                if (kind === "triptych" || kind === "mlsag") {
+                    return this.transactionInputSignatures.some(function (s) { return s.kind === "ct"; });
+                }
                 if (kind === "proofs") return this.transactionCtProofs.length > 0;
                 if (kind === "kernel") return Boolean(this.transactionCtKernel);
                 return false;
             },
             // ── Triptych spend-proof helpers ─────────────────────────────────
-            // Shape on the wire:
-            //   n          : 2/3/4 (full Triptych at ring size 4/8/16) or
-            //                0xFF (empty slot — matching tx.inputs[i] is a
-            //                v2 KeyInput, see ctSignatureIsEmptySlot)
-            //   I_bits[]   : bit-decomposition commitments, length n
-            //   A[], B[]   : bitness aux commitments, length n
-            //   Q_P[], Q_M[], Q_U[] : polynomial coefficient commitments, length n
-            //   z[], za[], zb[] : per-bit response scalars, length n
-            //   f_P, f_M, f_U   : response scalars (always three)
-            //
-            // n=0 used to be a Schnorr branch for ring size 1; it was
-            // removed because the proof shape didn't bind the same x in
-            // P=xG and I=x·Hp(P). Coinbase shielding goes through v2
-            // KeyInput now.
+            // Each ConfidentialInput slot in tx.signatures carries the
+            // Triptych proof body with header n ∈ {2,3,4} (ring size 4/8/16).
+            // 9 point/scalar arrays of length n plus three final scalars.
+            // KeyInput slots hold a legacy ring signature instead — see the
+            // sig.kind dispatch in transactionInputSignatures.
             ctSignatureN: function (sig) {
                 if (!sig) return 0;
                 if (typeof sig.n === "number") return sig.n;
                 if (Array.isArray(sig.I_bits)) return sig.I_bits.length;
                 return 0;
             },
-            // n=255 is the empty-slot sentinel: the matching tx.inputs[i] is
-            // a v2 KeyInput (transparent shielding), whose authorization
-            // lives in tx.signatures[i] as a legacy ring signature. There's
-            // no Triptych proof body to render for this slot.
-            ctSignatureIsEmptySlot: function (sig) {
-                return this.ctSignatureN(sig) === 255;
-            },
-            // tx.signatures comes from the explorer RPC as a flattened
-            // [{ first: inputIndex, second: sigHex }, ...] list. Pull every
-            // entry whose first === inputIndex; that's the ring signature
-            // for that input, one entry per ring member.
-            keyInputRingSig: function (inputIndex) {
-                if (!this.txView.tx || !Array.isArray(this.txView.tx.signatures)) return [];
-                var result = [];
-                for (var i = 0; i < this.txView.tx.signatures.length; ++i) {
-                    var entry = this.txView.tx.signatures[i];
-                    if (entry && Number(entry.first) === Number(inputIndex)) {
-                        result.push(entry.second);
-                    }
-                }
-                return result;
-            },
             ctSignatureRingSize: function (sig) {
                 var n = this.ctSignatureN(sig);
-                if (n === 255) return 0;
                 return Math.pow(2, n);
             },
             ctSignaturePointSeries: function () {

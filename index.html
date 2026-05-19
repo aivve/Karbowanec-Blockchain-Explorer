@@ -800,124 +800,96 @@
                             </article>
 
                             <article v-if="activeTxTab === 'signatures'" class="panel">
-                                <template v-if="transactionIsCT">
-                                    <p class="muted" style="margin: 0 0 0.75rem;">
-                                        Per-input <strong>Triptych</strong> spend proofs. Each is a Groth-Kohlweiss-descended,
-                                        logarithmic linkable one-out-of-many proof binding the spend authorization, the
-                                        commitment-balance step (<code>M_l = z·G</code> where <code>M_k = C_k − C'</code>) and
-                                        the key-image consistency (<code>I = x·Hp(P_l)</code>). The shape is set by the header
-                                        byte <code>n ∈ {2, 3, 4}</code> covering ring sizes 4, 8, 16. Transparent shielding
-                                        (KeyInput) slots show <code>n = 0xFF</code> with the legacy ring signature inlined.
-                                    </p>
-                                    <div v-if="!transactionCtSignatures.length" class="muted">No input signatures exposed.</div>
-                                    <div v-for="(sig, sigIndex) in transactionCtSignatures" :key="'triptych-' + sigIndex" class="panel" style="margin-top: 0.75rem;">
-                                        <div class="panel-header">
-                                            <div>
-                                                <p class="eyebrow">Input {{ sigIndex }}</p>
-                                                <h3 v-if="ctSignatureIsEmptySlot(sig)">
-                                                    Transparent shielding
-                                                    <span class="muted">(n = 0xFF — KeyInput authorized by legacy ring signature, see Inputs tab)</span>
-                                                </h3>
-                                                <h3 v-else>
-                                                    Ring size {{ ctSignatureRingSize(sig) }}
-                                                    <span class="muted">(n = {{ ctSignatureN(sig) }})</span>
-                                                </h3>
-                                            </div>
+                                <p v-if="transactionIsCT" class="muted" style="margin: 0 0 0.75rem;">
+                                    Per-input authorization. Confidential inputs carry a <strong>Triptych</strong> spend proof
+                                    (Groth-Kohlweiss-descended, logarithmic linkable one-out-of-many; header
+                                    byte <code>n ∈ {2, 3, 4}</code> covering ring sizes 4, 8, 16). Transparent shielding
+                                    inputs (v2 <code>KeyInput</code>) carry a legacy ring signature instead.
+                                </p>
+                                <div v-if="!transactionInputSignatures.length" class="muted">No input signatures exposed.</div>
+                                <div v-for="entry in transactionInputSignatures" :key="'sig-' + entry.inputIndex" class="panel" style="margin-top: 0.75rem;">
+                                    <div class="panel-header">
+                                        <div>
+                                            <p class="eyebrow">Input {{ entry.inputIndex }}</p>
+                                            <h3 v-if="entry.kind === 'ct'">
+                                                Ring size {{ ctSignatureRingSize(entry.sig) }}
+                                                <span class="muted">(n = {{ ctSignatureN(entry.sig) }}, Triptych)</span>
+                                            </h3>
+                                            <h3 v-else-if="entry.kind === 'key'">
+                                                Transparent
+                                                <span class="muted">({{ entry.sigs.length }}-member legacy ring signature)</span>
+                                            </h3>
+                                            <h3 v-else>
+                                                Coinbase
+                                                <span class="muted">(no signature)</span>
+                                            </h3>
                                         </div>
-                                        <template v-if="ctSignatureIsEmptySlot(sig)">
-                                            <p class="muted" style="margin: 0 0 0.5rem;">
-                                                This input is a transparent KeyOutput being shielded into the CT pool;
-                                                no Triptych proof body is emitted for this slot. Authorization is the
-                                                legacy ring signature below — one signature per ring member.
-                                            </p>
-                                            <div class="table-shell" style="margin-top: 0.5rem;">
+                                    </div>
+
+                                    <template v-if="entry.kind === 'key'">
+                                        <div class="table-shell" style="margin-top: 0.5rem;">
+                                            <table class="data-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>#</th>
+                                                        <th>Ring signature</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="(sigHex, sigPairIdx) in entry.sigs" :key="'krs-' + entry.inputIndex + '-' + sigPairIdx">
+                                                        <td>{{ sigPairIdx }}</td>
+                                                        <td><span class="hash-string">{{ sigHex }}</span></td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </template>
+
+                                    <template v-if="entry.kind === 'ct'">
+                                        <template v-for="series in ctSignaturePointSeries()">
+                                            <div :key="'pt-' + entry.inputIndex + '-' + series.key" v-if="Array.isArray(entry.sig[series.key]) && entry.sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
                                                 <table class="data-table">
                                                     <thead>
                                                         <tr>
                                                             <th>#</th>
-                                                            <th>Ring signature</th>
+                                                            <th>{{ series.key }} <span class="muted">— {{ series.desc }}</span></th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        <tr v-for="(sigPair, sigPairIdx) in keyInputRingSig(sigIndex)" :key="'krs-' + sigIndex + '-' + sigPairIdx">
-                                                            <td>{{ sigPairIdx }}</td>
-                                                            <td><span class="hash-string">{{ sigPair }}</span></td>
+                                                        <tr v-for="(point, ptIdx) in entry.sig[series.key]" :key="'pt-' + entry.inputIndex + '-' + series.key + '-' + ptIdx">
+                                                            <td>{{ ptIdx }}</td>
+                                                            <td><span class="hash-string">{{ point }}</span></td>
                                                         </tr>
                                                     </tbody>
                                                 </table>
                                             </div>
                                         </template>
 
-                                        <template v-if="!ctSignatureIsEmptySlot(sig)">
-                                            <!-- Point-array tracks: I_bits / A / B / Q_P / Q_M / Q_U.
-                                                 Each is length n ∈ {2, 3, 4} for the supported Triptych
-                                                 shapes; the renderer transparently shows whatever length
-                                                 each array has. -->
-                                            <template v-for="series in ctSignaturePointSeries()">
-                                                <div :key="'pt-' + sigIndex + '-' + series.key" v-if="Array.isArray(sig[series.key]) && sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
-                                                    <table class="data-table">
-                                                        <thead>
-                                                            <tr>
-                                                                <th>#</th>
-                                                                <th>{{ series.key }} <span class="muted">— {{ series.desc }}</span></th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            <tr v-for="(point, ptIdx) in sig[series.key]" :key="'pt-' + sigIndex + '-' + series.key + '-' + ptIdx">
-                                                                <td>{{ ptIdx }}</td>
-                                                                <td><span class="hash-string">{{ point }}</span></td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </template>
-
-                                            <!-- Scalar-array tracks: z / za / zb, each length n. -->
-                                            <template v-for="series in ctSignatureScalarSeries()">
-                                                <div :key="'sc-' + sigIndex + '-' + series.key" v-if="Array.isArray(sig[series.key]) && sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
-                                                    <table class="data-table">
-                                                        <thead>
-                                                            <tr>
-                                                                <th>#</th>
-                                                                <th>{{ series.key }} <span class="muted">— {{ series.desc }}</span></th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            <tr v-for="(scalar, scIdx) in sig[series.key]" :key="'sc-' + sigIndex + '-' + series.key + '-' + scIdx">
-                                                                <td>{{ scIdx }}</td>
-                                                                <td><span class="hash-string">{{ scalar }}</span></td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </template>
-
-                                            <!-- Final witness responses, always present for non-empty slots. -->
-                                            <div v-for="final in ctSignatureFinalScalars(sig)" :key="'fin-' + sigIndex + '-' + final.key" class="detail-row">
-                                                <span>{{ final.key }}</span>
-                                                <strong class="hash-string">{{ final.value }}</strong>
+                                        <template v-for="series in ctSignatureScalarSeries()">
+                                            <div :key="'sc-' + entry.inputIndex + '-' + series.key" v-if="Array.isArray(entry.sig[series.key]) && entry.sig[series.key].length" class="table-shell" style="margin-top: 0.5rem;">
+                                                <table class="data-table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>#</th>
+                                                            <th>{{ series.key }} <span class="muted">— {{ series.desc }}</span></th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <tr v-for="(scalar, scIdx) in entry.sig[series.key]" :key="'sc-' + entry.inputIndex + '-' + series.key + '-' + scIdx">
+                                                            <td>{{ scIdx }}</td>
+                                                            <td><span class="hash-string">{{ scalar }}</span></td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         </template>
-                                    </div>
-                                </template>
-                                <template v-else>
-                                    <div class="table-shell">
-                                        <table class="data-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>#</th>
-                                                    <th>Signature</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr v-for="signature in txView.tx.signatures" :key="signature.first + '-' + signature.second">
-                                                    <td>{{ signature.first }}</td>
-                                                    <td><span class="hash-string">{{ signature.second }}</span></td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </template>
+
+                                        <div v-for="final in ctSignatureFinalScalars(entry.sig)" :key="'fin-' + entry.inputIndex + '-' + final.key" class="detail-row">
+                                            <span>{{ final.key }}</span>
+                                            <strong class="hash-string">{{ final.value }}</strong>
+                                        </div>
+                                    </template>
+                                </div>
                             </article>
 
                             <article v-if="transactionIsCT && activeTxTab === 'ct-proofs'" class="panel">
