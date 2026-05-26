@@ -181,8 +181,10 @@
                             <article class="panel panel--wide">
                                 <div class="panel-header">
                                     <div>
-                                        <p class="eyebrow">Transactions pool</p>
-                                        <h2>Pending mempool</h2>
+                                        <p class="eyebrow">Mempool</p>
+                                        <h2>
+                                            Pending transactions<span v-if="!home.loading || home.mempool.length" class="count-pill" :title="home.mempool.length + ' transaction' + (home.mempool.length === 1 ? '' : 's') + ' in mempool'">{{ formatNumber(home.mempool.length) }}</span>
+                                        </h2>
                                     </div>
                                 </div>
 

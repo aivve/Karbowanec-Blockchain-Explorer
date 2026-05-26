@@ -667,6 +667,22 @@ html[data-theme="light"] .searchbar-submit:hover {
     letter-spacing: -0.04em;
 }
 
+.count-pill {
+    background: var(--primary-soft);
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    color: var(--primary);
+    display: inline-flex;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: 1;
+    margin-left: 0.5rem;
+    padding: 0.22rem 0.55rem;
+    vertical-align: 0.12em;
+}
+
 .page-head {
     padding: 0.2rem 0;
 }
