@@ -1503,10 +1503,12 @@
                 var difficultyMax = difficultyValues.length ? Math.max.apply(null, difficultyValues) : 0;
                 var difficultyRange = difficultyMax - difficultyMin;
                 // Center the data line vertically by padding symmetrically around its midpoint.
-                // Half-range scales with whichever is larger: the data swing (so trends remain
-                // legible) or a fraction of the magnitude (so flat data still has breathing room).
+                // Padding is driven by magnitude (a fraction of the max) so the visible margin
+                // stays consistent regardless of how many blocks are loaded. The range term is
+                // a safety floor: if the data swing is unusually wide, expand just enough to
+                // keep the line from clipping the chart edges.
                 var difficultyCenter = (difficultyMin + difficultyMax) / 2;
-                var difficultyHalfRange = Math.max(difficultyRange * 2.5, difficultyMax * 0.5, 1);
+                var difficultyHalfRange = Math.max(difficultyMax * 0.4, difficultyRange * 0.7, 1);
                 var suggestedDifficultyMin = Math.max(0, difficultyCenter - difficultyHalfRange);
                 var suggestedDifficultyMax = difficultyCenter + difficultyHalfRange;
 
