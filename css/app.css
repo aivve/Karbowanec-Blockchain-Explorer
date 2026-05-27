@@ -932,7 +932,7 @@ html[data-theme="dark"] .data-table td .hash-string {
 
 .ct-proof-list {
     margin: 0;
-    padding-left: 1.4em;
+    padding-left: 0;
 }
 
 .tx-type-cell {
@@ -1010,8 +1010,16 @@ html[data-theme="dark"] .page-title--hash {
     border-radius: 12px;
     display: grid;
     gap: 0.85rem;
-    grid-template-columns: minmax(126px, 168px) minmax(0, 1fr);
+    grid-template-columns: minmax(68px, 168px) minmax(0, 1fr);
     padding: 0.75rem 0.85rem;
+}
+
+.detail-list--scalar {
+    margin-top: 0.75rem;
+}
+
+.detail-list--scalar .detail-row {
+    grid-template-columns: minmax(40px, 60px) minmax(0, 1fr);
 }
 
 .detail-row span {
