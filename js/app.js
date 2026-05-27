@@ -1496,6 +1496,20 @@
 
                 this.destroyDifficultyChart();
 
+                var difficultyValues = model.points
+                    .map(function (point) { return Number(point.difficulty); })
+                    .filter(function (value) { return Number.isFinite(value) && value > 0; });
+                var difficultyMin = difficultyValues.length ? Math.min.apply(null, difficultyValues) : 0;
+                var difficultyMax = difficultyValues.length ? Math.max.apply(null, difficultyValues) : 0;
+                var difficultyRange = difficultyMax - difficultyMin;
+                // Center the data line vertically by padding symmetrically around its midpoint.
+                // Half-range scales with whichever is larger: the data swing (so trends remain
+                // legible) or a fraction of the magnitude (so flat data still has breathing room).
+                var difficultyCenter = (difficultyMin + difficultyMax) / 2;
+                var difficultyHalfRange = Math.max(difficultyRange * 2.5, difficultyMax * 0.5, 1);
+                var suggestedDifficultyMin = Math.max(0, difficultyCenter - difficultyHalfRange);
+                var suggestedDifficultyMax = difficultyCenter + difficultyHalfRange;
+
                 var styles = window.getComputedStyle(document.documentElement);
                 var primary = styles.getPropertyValue("--primary").trim() || "#5ca2ff";
                 var lineColor = styles.getPropertyValue("--line").trim() || "rgba(137, 175, 255, 0.16)";
@@ -1598,6 +1612,8 @@
                                     ticks: {
                                         beginAtZero: false,
                                         fontColor: textMuted,
+                                        suggestedMin: suggestedDifficultyMin,
+                                        suggestedMax: suggestedDifficultyMax,
                                         callback: function (value) {
                                             return _this.formatDifficulty(value);
                                         }
