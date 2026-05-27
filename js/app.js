@@ -1523,6 +1523,35 @@
                 var context = canvas.getContext("2d");
                 if (!context) return;
 
+                // Convert the primary colour (which may be hex or rgb) into an rgba with the
+                // given alpha, so we can paint a soft gradient under the line.
+                var toRgba = function (color, alpha) {
+                    if (typeof color !== "string") return color;
+                    var trimmed = color.trim();
+                    if (trimmed.charAt(0) === "#") {
+                        var hex = trimmed.slice(1);
+                        if (hex.length === 3) {
+                            hex = hex.split("").map(function (c) { return c + c; }).join("");
+                        }
+                        var r = parseInt(hex.substr(0, 2), 16);
+                        var g = parseInt(hex.substr(2, 2), 16);
+                        var b = parseInt(hex.substr(4, 2), 16);
+                        return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
+                    }
+                    var rgbMatch = trimmed.match(/^rgba?\(([^)]+)\)/i);
+                    if (rgbMatch) {
+                        var parts = rgbMatch[1].split(",").map(function (p) { return p.trim(); });
+                        return "rgba(" + parts[0] + "," + parts[1] + "," + parts[2] + "," + alpha + ")";
+                    }
+                    return color;
+                };
+
+                var canvasHeight = canvas.clientHeight || canvas.height || 320;
+                var fillGradient = context.createLinearGradient(0, 0, 0, canvasHeight);
+                fillGradient.addColorStop(0, toRgba(primary, 0.32));
+                fillGradient.addColorStop(0.6, toRgba(primary, 0.08));
+                fillGradient.addColorStop(1, toRgba(primary, 0));
+
                 this.charts.difficulty = new window.Chart(context, {
                     type: "line",
                     data: {
@@ -1538,12 +1567,18 @@
                                     };
                                 }),
                                 borderColor: primary,
-                                backgroundColor: primary,
-                                borderWidth: 3,
-                                pointRadius: 2,
-                                pointHoverRadius: 4,
-                                pointHitRadius: 8,
-                                fill: false
+                                backgroundColor: fillGradient,
+                                borderWidth: 2.5,
+                                borderCapStyle: "round",
+                                borderJoinStyle: "round",
+                                pointRadius: 0,
+                                pointHoverRadius: 5,
+                                pointHitRadius: 14,
+                                pointBackgroundColor: primary,
+                                pointBorderColor: backgroundStrong,
+                                pointBorderWidth: 2,
+                                lineTension: 0.35,
+                                fill: true
                             }
                         ]
                     },
@@ -1564,7 +1599,7 @@
                         },
                         elements: {
                             line: {
-                                tension: 0
+                                tension: 0.35
                             }
                         },
                         scales: {
@@ -1614,6 +1649,7 @@
                                     ticks: {
                                         beginAtZero: false,
                                         fontColor: textMuted,
+                                        maxTicksLimit: 5,
                                         suggestedMin: suggestedDifficultyMin,
                                         suggestedMax: suggestedDifficultyMax,
                                         callback: function (value) {
