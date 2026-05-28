@@ -872,6 +872,13 @@ html[data-theme="light"] .data-table th {
     background: rgba(92, 162, 255, 0.06);
 }
 
+.data-table .table-row-number {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+    width: 1%;
+}
+
 html[data-theme="dark"] .data-table td {
     color: rgba(229, 238, 249, 0.82);
 }

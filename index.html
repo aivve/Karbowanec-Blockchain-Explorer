@@ -718,6 +718,7 @@
                                     <table class="data-table">
                                         <thead>
                                             <tr>
+                                                <th class="table-row-number">#</th>
                                                 <th>Amount</th>
                                                 <th>Key image</th>
                                                 <th v-if="transactionIsCT">Pseudo commitment</th>
@@ -727,6 +728,7 @@
                                         </thead>
                                         <tbody>
                                             <tr v-for="(input, index) in txView.tx.inputs" :key="input.type + '-' + index">
+                                                <td class="table-row-number">{{ index }}</td>
                                                 <template v-if="input.type === '04'">
                                                     <td><span class="nowrap-value">{{ ctRingBucketsSummary(input) }}</span></td>
                                                     <td class="hash-cell" :title="input.data.keyImage"><span class="hash-string">{{ input.data.keyImage }}</span></td>
@@ -768,16 +770,18 @@
                                     <table class="data-table">
                                         <thead>
                                             <tr>
+                                                <th class="table-row-number">#</th>
                                                 <th>Amount</th>
                                                 <th>Public key (stealth address)</th>
                                                 <th v-if="transactionIsCT">Commitment</th>
                                                 <th v-if="transactionIsCT">Masked amount</th>
-                                                <th>Index</th>
+                                                <th>Global index</th>
                                                 <th>Type</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <tr v-for="(output, index) in txView.tx.outputs" :key="outputStealthKey(output.output.target) + '-' + index" :class="{ 'row-highlight': isOutputHighlighted(output, index) }">
+                                                <td class="table-row-number">{{ index }}</td>
                                                 <td><span class="nowrap-value">{{ output.output.target.type === '04' ? 'hidden' : formatCoins(output.output.amount, 12) }}</span></td>
                                                 <td class="hash-cell" :title="outputStealthKey(output.output.target)"><span class="hash-string">{{ outputStealthKey(output.output.target) }}</span></td>
                                                 <td v-if="transactionIsCT" class="hash-cell" :title="output.output.target.type === '04' ? outputCommitment(output.output.target) : ''">
