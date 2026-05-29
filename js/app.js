@@ -2709,6 +2709,54 @@
                     return Boolean(candidateKey && outputKey && candidateKey === outputKey);
                 });
             },
+            // Returns the atomic amount a verified key/proof decoded for this
+            // output, or null when verification hasn't matched it. Lets the
+            // Outputs tab swap a CT output's "hidden" placeholder for the real
+            // value once the viewer proves ownership.
+            outputDecodedAmount: function (output) {
+                if (!this.txVerifier.result || !Array.isArray(this.txVerifier.result.outputs)) return null;
+                var outputKey = paymentOutputTargetKey(output);
+                if (!outputKey) return null;
+                var match = this.txVerifier.result.outputs.find(function (candidate) {
+                    return paymentOutputTargetKey(candidate) === outputKey;
+                });
+                if (!match) return null;
+                var amount = match.received_amount;
+                if (amount === undefined || amount === null) amount = match.receivedAmount;
+                if (amount === undefined || amount === null) amount = match.decoded_amount;
+                if (amount === undefined || amount === null) amount = match.decodedAmount;
+                return amount === undefined || amount === null ? null : amount;
+            },
+            outputAmountText: function (output) {
+                var target = output && output.output ? output.output.target : null;
+                if (target && target.type === "04") {
+                    var decoded = this.outputDecodedAmount(output);
+                    return decoded === null ? "hidden" : this.formatCoins(decoded, 12);
+                }
+                return this.formatCoins(output.output.amount, 12);
+            },
+            // Flattens the standalone Check payment result into rows the tool can
+            // list directly. Matched outputs already carry the decoded amount
+            // (received_amount), so CT and transparent outputs render the same.
+            paymentResultOutputs: function () {
+                var result = this.paymentCheckTool.result;
+                if (!result || !Array.isArray(result.outputs)) return [];
+                var self = this;
+                return result.outputs.map(function (output) {
+                    var target = output && output.output ? output.output.target : null;
+                    var amount = output.received_amount;
+                    if (amount === undefined || amount === null) amount = output.receivedAmount;
+                    if (amount === undefined || amount === null) amount = output.decoded_amount;
+                    if (amount === undefined || amount === null) amount = output.decodedAmount;
+                    if ((amount === undefined || amount === null) && target) amount = output.output.amount;
+                    return {
+                        stealthKey: self.outputStealthKey(target),
+                        amountText: self.formatCoins(amount, 12),
+                        isConfidential: Boolean(target && target.type === "04"),
+                        globalIndex: output.globalIndex
+                    };
+                });
+            },
             isConfidentialTx: function (transaction) {
                 return isConfidentialTransaction(transaction);
             },

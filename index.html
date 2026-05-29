@@ -782,7 +782,7 @@
                                         <tbody>
                                             <tr v-for="(output, index) in txView.tx.outputs" :key="outputStealthKey(output.output.target) + '-' + index" :class="{ 'row-highlight': isOutputHighlighted(output, index) }">
                                                 <td class="table-row-number">{{ index }}</td>
-                                                <td><span class="nowrap-value">{{ output.output.target.type === '04' ? 'hidden' : formatCoins(output.output.amount, 12) }}</span></td>
+                                                <td><span class="nowrap-value" :class="{ 'amount-decoded': output.output.target.type === '04' && outputDecodedAmount(output) !== null }" :title="output.output.target.type === '04' && outputDecodedAmount(output) !== null ? 'Decoded from your key/proof' : ''">{{ outputAmountText(output) }}</span></td>
                                                 <td class="hash-cell" :title="outputStealthKey(output.output.target)"><span class="hash-string">{{ outputStealthKey(output.output.target) }}</span></td>
                                                 <td v-if="transactionIsCT" class="hash-cell" :title="output.output.target.type === '04' ? outputCommitment(output.output.target) : ''">
                                                     <span v-if="output.output.target.type === '04'" class="hash-string">{{ outputCommitment(output.output.target) }}</span>
@@ -1431,6 +1431,31 @@
                             <div v-if="paymentCheckTool.result" class="notice" :class="paymentCheckTool.result.signatureValid === false ? 'notice--error' : 'notice--success'">
                                 <strong>{{ paymentCheckTool.result.signatureValid === false ? 'Invalid signature' : (paymentCheckTool.result.amountUnavailable ? 'Matching outputs found, amount unavailable from node' : 'Received amount: ' + formatCoins(paymentCheckTool.result.amount, 12)) }}</strong>
                                 <p v-if="paymentCheckTool.result.signatureValid !== false">{{ formatNumber(paymentCheckTool.result.outputs.length) }} matching outputs found.</p>
+                            </div>
+                            <div v-if="paymentCheckTool.result && paymentCheckTool.result.signatureValid !== false && paymentResultOutputs().length" class="table-shell" style="margin-top: 1rem;">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="table-row-number">#</th>
+                                            <th>Amount</th>
+                                            <th>Public key (stealth address)</th>
+                                            <th>Type</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="(out, index) in paymentResultOutputs()" :key="out.stealthKey + '-' + index" class="row-highlight">
+                                            <td class="table-row-number">{{ index }}</td>
+                                            <td><span class="nowrap-value" :class="{ 'amount-decoded': out.isConfidential }" :title="out.isConfidential ? 'Decoded from your key/proof' : ''">{{ out.amountText }}</span></td>
+                                            <td class="hash-cell" :title="out.stealthKey"><span class="hash-string">{{ out.stealthKey }}</span></td>
+                                            <td>
+                                                <span class="tx-type-cell">
+                                                    {{ out.isConfidential ? '04' : '02' }}
+                                                    <i v-if="out.isConfidential" class="fas fa-eye-slash" aria-hidden="true" title="Confidential"></i>
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
                         </article>
                     </section>

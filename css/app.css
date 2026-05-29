@@ -924,6 +924,11 @@ html[data-theme="dark"] .data-table td .hash-string {
     white-space: nowrap;
 }
 
+.amount-decoded {
+    color: var(--success);
+    font-weight: 600;
+}
+
 .ct-proof-cell {
     display: flex;
     flex-direction: column;
