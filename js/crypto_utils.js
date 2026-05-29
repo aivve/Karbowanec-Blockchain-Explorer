@@ -2266,6 +2266,23 @@ var cnUtil = (function(initConfig) {
 
     this.decode_tx_proof = function(proof) {
         var payload = this.decode_prefixed_data(proof, CRYPTONOTE_TX_PROOF_BASE58_PREFIX);
+        // Karbo wallets base58-encode the proof as
+        //   prefix(4) + derivation(32) + signature(64) + checksum(4)
+        // where the trailing checksum is cn_fast_hash(prefix + body)[:4],
+        // the same scheme used for addresses. decode_prefixed_data only
+        // strips the prefix, so a wallet proof arrives 4 bytes longer than the
+        // bare 96-byte body. Verify and drop the checksum when it is present.
+        var checksumHexLen = ADDRESS_CHECKSUM_SIZE * 2;
+        if (payload.length === 192 + checksumHexLen) {
+            var body = payload.slice(0, 192);
+            var checksum = payload.slice(192, 192 + checksumHexLen);
+            var prefix = this.encode_varint(CRYPTONOTE_TX_PROOF_BASE58_PREFIX);
+            var expectedChecksum = this.cn_fast_hash(prefix + body).slice(0, checksumHexLen);
+            if (checksum !== expectedChecksum) {
+                throw "Invalid transaction proof checksum";
+            }
+            payload = body;
+        }
         if (payload.length !== 192) {
             throw "Invalid transaction proof length";
         }
