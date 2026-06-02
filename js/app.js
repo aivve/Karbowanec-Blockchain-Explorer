@@ -38,23 +38,120 @@
     ];
     var SCRIPT_PROMISES = Object.create(null);
 
-    // CT (Confidential Transactions) — version 2 hides per-output amounts behind
-    // Pedersen commitments and proves correctness via per-input Triptych spend
-    // proofs, per-output Groth-Kohlweiss denomination proofs, and a transaction
-    // kernel that binds the balance equation.
+    // CT (v2) hides output amounts. Unshield (v3) uses the same balance
+    // machinery but can mix transparent payout outputs with confidential change.
     var TRANSACTION_VERSION_CT = 2;
+    var TRANSACTION_VERSION_UNSHIELD = 3;
+
+    function transactionVersionNumber(transaction) {
+        if (!transaction || transaction.version === undefined || transaction.version === null || transaction.version === "") return null;
+        var version = Number(transaction.version);
+        return Number.isFinite(version) ? Math.trunc(version) : null;
+    }
+
+    function isConfidentialTransactionVersion(version) {
+        return version === TRANSACTION_VERSION_CT || version === TRANSACTION_VERSION_UNSHIELD;
+    }
+
+    function transactionOutputTarget(output) {
+        if (!output || typeof output !== "object") return null;
+        if (output.output && output.output.target) return output.output.target;
+        return output.target || null;
+    }
+
+    function isConfidentialOutput(output) {
+        var target = transactionOutputTarget(output);
+        return Boolean(target && String(target.type) === "04");
+    }
+
+    function transactionOutputs(transaction) {
+        return transaction && Array.isArray(transaction.outputs) ? transaction.outputs : [];
+    }
+
+    function transactionHasConfidentialOutputs(transaction) {
+        return transactionOutputs(transaction).some(isConfidentialOutput);
+    }
+
+    function transactionHasConfidentialInputs(transaction) {
+        var inputs = transaction && Array.isArray(transaction.inputs) ? transaction.inputs : [];
+        return inputs.some(function (input) { return input && String(input.type) === "04"; });
+    }
+
+    function transactionHasCtArtifacts(transaction) {
+        return Boolean(transaction && ((Array.isArray(transaction.ctProofs) && transaction.ctProofs.length) || transaction.kernel));
+    }
+
+    function transactionVisibleOutputsAmount(transaction) {
+        if (!transaction) return null;
+        var outputs = transactionOutputs(transaction);
+        if (outputs.length) {
+            var total = 0n;
+            var foundTransparent = false;
+            outputs.forEach(function (output) {
+                if (isConfidentialOutput(output)) return;
+                var amount = output && output.output ? output.output.amount : output && output.amount;
+                var atomic = toAtomicBigInt(amount);
+                if (atomic !== null) {
+                    total += atomic;
+                    foundTransparent = true;
+                }
+            });
+            if (foundTransparent) return total;
+            if (transactionHasConfidentialOutputs(transaction)) return 0n;
+        }
+        var totalOutputsAmount = transaction.totalOutputsAmount;
+        if (totalOutputsAmount === undefined || totalOutputsAmount === null) totalOutputsAmount = transaction.amount_out;
+        return toAtomicBigInt(totalOutputsAmount);
+    }
+
+    function transactionVisibleOutputsArePositive(transaction) {
+        var amount = transactionVisibleOutputsAmount(transaction);
+        return amount !== null && amount > 0n;
+    }
 
     function isConfidentialTransaction(transaction) {
         if (!transaction) return false;
         if (transaction.version !== undefined && transaction.version !== null) {
-            return Number(transaction.version) === TRANSACTION_VERSION_CT;
+            return isConfidentialTransactionVersion(transactionVersionNumber(transaction));
         }
+        if (transactionHasConfidentialInputs(transaction) || transactionHasConfidentialOutputs(transaction) || transactionHasCtArtifacts(transaction)) return true;
         // Short tx responses (gettransactionsbypaymentid, block.transactions[]) lack
         // a version field, but daemon sets amount_out=0 for CT and never for transparent
         // non-coinbase transactions; coinbase has fee=0, so this disambiguates safely.
-        var amount = Number(transaction.totalOutputsAmount || transaction.amount_out || 0);
+        var amount = transactionVisibleOutputsAmount(transaction);
         var fee = Number(transaction.fee || 0);
-        return amount === 0 && fee > 0;
+        return amount !== null && amount === 0n && fee > 0;
+    }
+
+    function isUnshieldTransaction(transaction) {
+        return transactionVersionNumber(transaction) === TRANSACTION_VERSION_UNSHIELD;
+    }
+
+    function transactionPrivacyLabel(transaction) {
+        var version = transactionVersionNumber(transaction);
+        if (version === TRANSACTION_VERSION_UNSHIELD) return "Unshield";
+        if (version === TRANSACTION_VERSION_CT || isConfidentialTransaction(transaction)) return "Confidential";
+        return "Transparent";
+    }
+
+    function transactionVersionMetaText(transaction) {
+        var version = transactionVersionNumber(transaction);
+        if (version === TRANSACTION_VERSION_UNSHIELD) return "Unshield / mixed outputs (v3)";
+        if (version === TRANSACTION_VERSION_CT) return "Confidential (v2)";
+        if (version === 1) return "Transparent (v1)";
+        return version === null ? "Transaction version" : "Transaction version " + version;
+    }
+
+    function transactionAmountTitleText(transaction) {
+        if (!isConfidentialTransaction(transaction)) return "";
+        if (isUnshieldTransaction(transaction)) {
+            return transactionVisibleOutputsArePositive(transaction)
+                ? "Unshield transaction: public payout amount shown; confidential change may be hidden"
+                : "Unshield transaction";
+        }
+        return transactionVisibleOutputsArePositive(transaction)
+            ? "Confidential transaction: public amount shown; confidential outputs hidden"
+            : "Confidential transaction";
     }
 
     function safeStorageGet(key) {
@@ -1069,19 +1166,28 @@
             transactionIsCT: function () {
                 return isConfidentialTransaction(this.txView.tx);
             },
+            transactionPrivacyBadgeLabel: function () {
+                return transactionPrivacyLabel(this.txView.tx);
+            },
+            transactionPrivacyBadgeTitle: function () {
+                return transactionAmountTitleText(this.txView.tx);
+            },
+            transactionVersionMeta: function () {
+                return transactionVersionMetaText(this.txView.tx);
+            },
             transactionOutputsAmountText: function () {
-                if (!this.txView.tx) return "--";
-                var publicAmount = Number(this.txView.tx.totalOutputsAmount || 0);
-                if (this.transactionIsCT) {
-                    return publicAmount > 0 ? this.formatCoins(publicAmount, 12) + " (public part)" : "hidden";
-                }
-                return this.formatCoins(this.txView.tx.totalOutputsAmount, 12);
+                return this.transactionOutputsAmountTextFor(this.txView.tx, 12, true);
             },
             transactionOutputsAmountMeta: function () {
                 if (!this.txView.tx) return "Visible outputs total";
                 if (!this.transactionIsCT) return "Visible outputs total";
-                return Number(this.txView.tx.totalOutputsAmount || 0) > 0
-                    ? "Confidential outputs hidden"
+                if (isUnshieldTransaction(this.txView.tx)) {
+                    return transactionVisibleOutputsArePositive(this.txView.tx)
+                        ? "Public payout shown; confidential change may be hidden"
+                        : "Unshield transaction";
+                }
+                return transactionVisibleOutputsArePositive(this.txView.tx)
+                    ? "Public outputs visible; confidential outputs hidden"
                     : "Confidential transaction";
             },
             transactionMixinText: function () {
@@ -1114,15 +1220,16 @@
                 if (this.transactionIsCT) {
                     var ctInputs = 0;
                     var keyInputs = 0;
+                    var keyInputLabel = isUnshieldTransaction(this.txView.tx) ? "transparent" : "shielding";
                     inputs.forEach(function (input) {
                         if (!input) return;
                         if (input.type === "04") ctInputs += 1;
                         else if (input.type !== "ff") keyInputs += 1;
                     });
                     if (ctInputs > 0 && keyInputs > 0) {
-                        return ctInputs + " confidential + " + keyInputs + " shielding";
+                        return ctInputs + " confidential + " + keyInputs + " " + keyInputLabel;
                     }
-                    if (keyInputs > 0) return "shielding into CT pool";
+                    if (keyInputs > 0) return isUnshieldTransaction(this.txView.tx) ? "transparent spends" : "shielding into CT pool";
                     if (ctInputs > 0) return "confidential spends";
                 }
                 return "Spent inputs / created outputs";
@@ -2760,12 +2867,30 @@
             isConfidentialTx: function (transaction) {
                 return isConfidentialTransaction(transaction);
             },
-            txOutputsAmountText: function (transaction) {
+            txPrivacyTitle: function (transaction) {
+                return transactionAmountTitleText(transaction);
+            },
+            transactionOutputsAmountTextFor: function (transaction, precision, includeSymbol) {
                 if (!transaction) return "--";
-                if (isConfidentialTransaction(transaction)) return "hidden";
-                var amount = transaction.totalOutputsAmount;
-                if (amount === undefined) amount = transaction.amount_out;
-                return this.formatCoins(amount, false);
+                var amount = transactionVisibleOutputsAmount(transaction);
+                if (isConfidentialTransaction(transaction)) {
+                    if (amount !== null && amount > 0n) {
+                        var suffix = (isUnshieldTransaction(transaction) || transactionHasConfidentialOutputs(transaction)) ? " (public part)" : " public";
+                        return this.formatCoins(amount, precision, includeSymbol) + suffix;
+                    }
+                    return "hidden";
+                }
+                return this.formatCoins(amount, precision, includeSymbol);
+            },
+            txOutputsAmountText: function (transaction) {
+                return this.transactionOutputsAmountTextFor(transaction, undefined, false);
+            },
+            outputIsConfidential: function (output) {
+                return isConfidentialOutput(output);
+            },
+            txInputOutputRef: function (input, offsetIndex) {
+                if (!input || !input.data || !Array.isArray(input.data.outputs)) return null;
+                return input.data.outputs[offsetIndex] || null;
             },
             outputStealthKey: function (target) {
                 if (!target || !target.data) return "";
@@ -2821,6 +2946,22 @@
                 var legacy = input.data.ringOutputIndexes;
                 if (Array.isArray(legacy) && k < legacy.length) return legacy[k];
                 return "?";
+            },
+            ctProofOutputIndex: function (proofIndex) {
+                var outputs = this.txView.tx ? transactionOutputs(this.txView.tx) : [];
+                var confidentialIndex = 0;
+                for (var i = 0; i < outputs.length; i += 1) {
+                    if (!isConfidentialOutput(outputs[i])) continue;
+                    if (confidentialIndex === proofIndex) return i;
+                    confidentialIndex += 1;
+                }
+                return proofIndex;
+            },
+            ctProofOutputLabel: function (proofIndex) {
+                var outputIndex = this.ctProofOutputIndex(proofIndex);
+                return outputIndex === proofIndex
+                    ? "Output " + outputIndex
+                    : "Output " + outputIndex + " (confidential #" + proofIndex + ")";
             },
             ctTabHasContent: function (kind) {
                 if (kind === "triptych" || kind === "mlsag") {

@@ -215,7 +215,7 @@
                                                         <span class="muted">{{ formatRelativeTime(tx.receive_time) }}</span>
                                                     </div>
                                                 </td>
-                                                <td><span :title="isConfidentialTx(tx) ? 'Confidential transaction' : ''">{{ txOutputsAmountText(tx) }}</span></td>
+                                                <td><span :title="txPrivacyTitle(tx)">{{ txOutputsAmountText(tx) }}</span></td>
                                                 <td>{{ formatCoins(tx.fee, false) }}</td>
                                                 <td><span class="nowrap-value">{{ formatBytes(tx.size) }}</span></td>
                                                 <td>
@@ -267,7 +267,7 @@
                                                         <span class="muted">{{ formatRelativeTime(tx.timestamp) }}</span>
                                                     </div>
                                                 </td>
-                                                <td><span :title="isConfidentialTx(tx) ? 'Confidential transaction' : ''">{{ txOutputsAmountText(tx) }}</span></td>
+                                                <td><span :title="txPrivacyTitle(tx)">{{ txOutputsAmountText(tx) }}</span></td>
                                                 <td>{{ formatCoins(tx.fee, false) }}</td>
                                                 <td><span class="nowrap-value">{{ formatBytes(tx.size) }}</span></td>
                                                 <td>
@@ -513,7 +513,7 @@
                                                     <a class="hash-string inline-link" :href="linkTo({ name: 'transaction', params: { hash: transaction.hash } })" @click.prevent="goTo({ name: 'transaction', params: { hash: transaction.hash } })">{{ transaction.hash }}</a>
                                                 </td>
                                                 <td>{{ formatCoins(transaction.fee, false) }}</td>
-                                                <td><span :title="isConfidentialTx(transaction) ? 'Confidential transaction' : ''">{{ txOutputsAmountText(transaction) }}</span></td>
+                                                <td><span :title="txPrivacyTitle(transaction)">{{ txOutputsAmountText(transaction) }}</span></td>
                                                 <td>{{ formatBytes(transaction.size) }}</td>
                                             </tr>
                                         </tbody>
@@ -594,12 +594,12 @@
                                     <span class="metric-label">Version</span>
                                     <strong>
                                         {{ txView.tx.version || '--' }}
-                                        <span v-if="transactionIsCT" class="status-pill is-online" style="margin-left: 0.5rem;" title="Confidential Transaction: amounts hidden behind Pedersen commitments and proven correct via Triptych logarithmic linkable one-out-of-many spend proofs (per input) and Groth-Kohlweiss denomination proofs (per output), bound by a transaction kernel.">
+                                        <span v-if="transactionIsCT" class="status-pill is-online" style="margin-left: 0.5rem;" :title="transactionPrivacyBadgeTitle">
                                             <i class="fas fa-eye-slash" aria-hidden="true"></i>
-                                            Confidential
+                                            {{ transactionPrivacyBadgeLabel }}
                                         </span>
                                     </strong>
-                                    <span class="metric-meta">{{ transactionIsCT ? 'CT (v2)' : 'Transparent (v1)' }}</span>
+                                    <span class="metric-meta">{{ transactionVersionMeta }}</span>
                                 </article>
                             </div>
 
@@ -749,7 +749,8 @@
                                                     <td v-if="transactionIsCT" class="muted">--</td>
                                                     <td class="tx-output-refs">
                                                         <span v-for="(offset, offsetIndex) in input.data.input.key_offsets" :key="offset + '-' + offsetIndex">
-                                                            <a class="inline-link" :href="linkTo({ name: 'transaction', params: { hash: input.data.outputs[offsetIndex].transactionHash }, query: { highlight: input.data.outputs[offsetIndex].number } })" @click.prevent="goTo({ name: 'transaction', params: { hash: input.data.outputs[offsetIndex].transactionHash }, query: { highlight: input.data.outputs[offsetIndex].number } })">{{ offset }}</a><span v-if="offsetIndex < input.data.input.key_offsets.length - 1"> &middot; </span>
+                                                            <a v-if="txInputOutputRef(input, offsetIndex)" class="inline-link" :href="linkTo({ name: 'transaction', params: { hash: txInputOutputRef(input, offsetIndex).transactionHash }, query: { highlight: txInputOutputRef(input, offsetIndex).number } })" @click.prevent="goTo({ name: 'transaction', params: { hash: txInputOutputRef(input, offsetIndex).transactionHash }, query: { highlight: txInputOutputRef(input, offsetIndex).number } })">{{ offset }}</a>
+                                                            <span v-else>{{ offset }}</span><span v-if="offsetIndex < input.data.input.key_offsets.length - 1"> &middot; </span>
                                                         </span>
                                                     </td>
                                                     <td>{{ input.type }}</td>
@@ -782,21 +783,21 @@
                                         <tbody>
                                             <tr v-for="(output, index) in txView.tx.outputs" :key="outputStealthKey(output.output.target) + '-' + index" :class="{ 'row-highlight': isOutputHighlighted(output, index) }">
                                                 <td class="table-row-number">{{ index }}</td>
-                                                <td><span class="nowrap-value" :class="{ 'amount-decoded': output.output.target.type === '04' && outputDecodedAmount(output) !== null }" :title="output.output.target.type === '04' && outputDecodedAmount(output) !== null ? 'Decoded from your key/proof' : ''">{{ outputAmountText(output) }}</span></td>
+                                                <td><span class="nowrap-value" :class="{ 'amount-decoded': outputIsConfidential(output) && outputDecodedAmount(output) !== null }" :title="outputIsConfidential(output) && outputDecodedAmount(output) !== null ? 'Decoded from your key/proof' : ''">{{ outputAmountText(output) }}</span></td>
                                                 <td class="hash-cell" :title="outputStealthKey(output.output.target)"><span class="hash-string">{{ outputStealthKey(output.output.target) }}</span></td>
-                                                <td v-if="transactionIsCT" class="hash-cell" :title="output.output.target.type === '04' ? outputCommitment(output.output.target) : ''">
-                                                    <span v-if="output.output.target.type === '04'" class="hash-string">{{ outputCommitment(output.output.target) }}</span>
+                                                <td v-if="transactionIsCT" class="hash-cell" :title="outputIsConfidential(output) ? outputCommitment(output.output.target) : ''">
+                                                    <span v-if="outputIsConfidential(output)" class="hash-string">{{ outputCommitment(output.output.target) }}</span>
                                                     <span v-else class="muted">--</span>
                                                 </td>
-                                                <td v-if="transactionIsCT" class="hash-cell" :title="output.output.target.type === '04' ? outputMaskedAmount(output.output.target) : ''">
-                                                    <span v-if="output.output.target.type === '04'" class="hash-string">{{ outputMaskedAmount(output.output.target) }}</span>
+                                                <td v-if="transactionIsCT" class="hash-cell" :title="outputIsConfidential(output) ? outputMaskedAmount(output.output.target) : ''">
+                                                    <span v-if="outputIsConfidential(output)" class="hash-string">{{ outputMaskedAmount(output.output.target) }}</span>
                                                     <span v-else class="muted">--</span>
                                                 </td>
                                                 <td>{{ formatNumber(output.globalIndex) }}</td>
                                                 <td>
                                                     <span class="tx-type-cell">
                                                         {{ output.output.target.type }}
-                                                        <i v-if="output.output.target.type === '04'" class="fas fa-eye-slash" aria-hidden="true" title="Confidential"></i>
+                                                        <i v-if="outputIsConfidential(output)" class="fas fa-eye-slash" aria-hidden="true" title="Confidential"></i>
                                                     </span>
                                                 </td>
                                             </tr>
@@ -809,8 +810,8 @@
                                 <p v-if="transactionIsCT" class="muted" style="margin: 0 0 0.75rem;">
                                     Per-input authorization. Confidential inputs carry a <strong>Triptych</strong> spend proof
                                     (Groth-Kohlweiss-descended, logarithmic linkable one-out-of-many; header
-                                    byte <code>n ∈ {2, 3, 4}</code> covering ring sizes 4, 8, 16). Transparent shielding
-                                    inputs (v2 <code>KeyInput</code>) carry a legacy ring signature instead.
+                                    byte <code>n ∈ {2, 3, 4}</code> covering ring sizes 4, 8, 16). Transparent
+                                    <code>KeyInput</code> slots carry a legacy ring signature instead.
                                 </p>
                                 <div v-if="!transactionInputSignatures.length" class="muted">No input signatures exposed.</div>
                                 <div v-for="entry in transactionInputSignatures" :key="'sig-' + entry.inputIndex" class="panel" style="margin-top: 0.75rem;">
@@ -909,7 +910,7 @@
                                 <div v-for="(proof, proofIndex) in transactionCtProofs" :key="'gk-' + proofIndex" class="panel" style="margin-top: 0.75rem;">
                                     <div class="panel-header">
                                         <div>
-                                            <p class="eyebrow">Output {{ proofIndex }}</p>
+                                            <p class="eyebrow">{{ ctProofOutputLabel(proofIndex) }}</p>
                                             <h3>GK denomination proof</h3>
                                         </div>
                                     </div>
@@ -991,7 +992,7 @@
                                                 <a class="hash-string inline-link" :href="linkTo({ name: 'transaction', params: { hash: transaction.hash } })" @click.prevent="goTo({ name: 'transaction', params: { hash: transaction.hash } })">{{ transaction.hash }}</a>
                                             </td>
                                             <td>{{ formatCoins(transaction.fee, false) }}</td>
-                                            <td><span :title="isConfidentialTx(transaction) ? 'Confidential transaction' : ''">{{ txOutputsAmountText(transaction) }}</span></td>
+                                            <td><span :title="txPrivacyTitle(transaction)">{{ txOutputsAmountText(transaction) }}</span></td>
                                             <td>{{ formatBytes(transaction.size) }}</td>
                                         </tr>
                                     </tbody>
