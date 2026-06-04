@@ -2974,7 +2974,9 @@
             // ── Triptych spend-proof helpers ─────────────────────────────────
             // Each ConfidentialInput slot in tx.signatures carries the
             // Triptych proof body with header n ∈ {2,3,4} (ring size 4/8/16).
-            // 9 point/scalar arrays of length n plus three final scalars.
+            // 6 point arrays + 3 scalar arrays of length n plus two final
+            // scalars (f_P, f_M). The key image J = x·U is bound by reusing
+            // f_P (no separate f_U); the linking track is Q_J.
             // KeyInput slots hold a legacy ring signature instead — see the
             // sig.kind dispatch in transactionInputSignatures.
             ctSignatureN: function (sig) {
@@ -2994,7 +2996,7 @@
                     { key: "B",      desc: "bitness aux commitments" },
                     { key: "Q_P",    desc: "P-ring polynomial coefficients (G-base)" },
                     { key: "Q_M",    desc: "M-ring polynomial coefficients (G-base; M_k = C_k − C')" },
-                    { key: "Q_U",    desc: "U-ring polynomial coefficients (I-base; U_k = Hp(P_k))" }
+                    { key: "Q_J",    desc: "linking-track coefficients ρ_P·U (U-base; key image J = x·U)" }
                 ];
             },
             ctSignatureScalarSeries: function () {
@@ -3008,8 +3010,7 @@
                 if (!sig) return [];
                 return [
                     { key: "f_P", value: sig.f_P || "" },
-                    { key: "f_M", value: sig.f_M || "" },
-                    { key: "f_U", value: sig.f_U || "" }
+                    { key: "f_M", value: sig.f_M || "" }
                 ];
             },
             ctProofFields: function () {
